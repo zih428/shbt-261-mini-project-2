@@ -1,0 +1,43 @@
+experiment_name: base_experiment
+
+runtime:
+  amp: true
+
+data:
+  metadata_dir: dataset
+  crop_size: 512
+  eval_size: 512
+  batch_size: 8
+  eval_batch_size: 4
+  num_workers: 4
+  augmentation:
+    name: standard
+
+model:
+  family: unet
+  backbone: resnet34
+  pretrained: true
+
+optimizer:
+  name: adamw
+  lr: 0.0003
+  weight_decay: 0.0001
+  betas: [0.9, 0.999]
+
+scheduler:
+  max_epochs: 60
+  warmup_epochs: 5
+
+training:
+  seed: 42
+  deterministic: false
+  early_stopping_patience: 10
+
+loss:
+  name: ce_dice
+  ce_weight: 1.0
+  dice_weight: 1.0
+  ignore_index: 255
+
+metrics:
+  hd95_include_background: false

@@ -1,0 +1,11 @@
+_base_: ../base/base.yaml
+
+experiment_name: deeplabv3plus_resnet50
+
+model:
+  family: deeplabv3plus
+  backbone: resnet50
+  pretrained: true
+
+optimizer:
+  lr: 0.0002

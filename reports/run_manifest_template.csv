@@ -1,0 +1,1 @@
+run_name,model_family,backbone,seed,split,checkpoint_path,training_time_seconds,peak_gpu_memory_gb,mIoU,mean_dice,hd95,pixel_accuracy,notes

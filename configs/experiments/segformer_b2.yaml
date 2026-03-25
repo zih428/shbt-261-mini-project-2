@@ -1,0 +1,12 @@
+_base_: ../base/base.yaml
+
+experiment_name: segformer_b2
+
+model:
+  family: segformer
+  backbone: mit_b2
+  pretrained: true
+  embedding_dim: 256
+
+optimizer:
+  lr: 0.0002

@@ -1,0 +1,138 @@
+Metadata-Version: 2.4
+Name: vocseg
+Version: 0.1.0
+Summary: Graduate-level semantic segmentation experiment stack for Pascal VOC 2007.
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: numpy>=1.26
+Requires-Dist: pandas>=2.2
+Requires-Dist: pillow>=10.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: scipy>=1.11
+Requires-Dist: scikit-learn>=1.4
+Requires-Dist: torch>=2.2
+Requires-Dist: torchvision>=0.17
+Provides-Extra: models
+Requires-Dist: timm>=0.9.16; extra == "models"
+Requires-Dist: segmentation-models-pytorch>=0.3.3; extra == "models"
+Provides-Extra: sam2
+Requires-Dist: sam2; extra == "sam2"
+
+# Pascal VOC 2007 Semantic Segmentation Stack
+
+This repository implements a configuration-driven experiment pipeline for the Pascal VOC 2007 semantic segmentation mini-project. It is structured to support:
+
+- internal train/dev splitting with multilabel stratification
+- rigorous metric computation, including `mIoU`, `Dice`, `Pixel Accuracy`, and `HD95`
+- multiple model families:
+  - `U-Net`
+  - `DeepLabV3+`
+  - `SegFormer`
+  - `SAM2` semantic adaptation
+- ablation studies, qualitative analysis, and aggregated reporting assets
+
+## Install
+
+```bash
+uv sync --group dev
+uv sync --group dev --extra models
+```
+
+`SAM2` support is optional. Install it separately if you want the SAM2 experiment track.
+
+## Expected Dataset Layout
+
+The scripts assume the Pascal VOC 2007 directory layout expected by `torchvision.datasets.VOCSegmentation`, for example:
+
+```text
+VOCtrainval_06-Nov-2007/
+  VOCdevkit/
+    VOC2007/
+      JPEGImages/
+      SegmentationClass/
+      ImageSets/
+```
+
+## Workflow
+
+1. Prepare metadata and the internal split:
+
+```bash
+uv run python scripts/prepare_voc.py \
+  --data-root /path/to/VOCtrainval_06-Nov-2007 \
+  --output-dir ./artifacts/dataset
+```
+
+2. Train a model on the internal train/dev split:
+
+```bash
+uv run python scripts/train.py \
+  --config configs/experiments/unet_resnet34.yaml \
+  --data-root /path/to/VOCtrainval_06-Nov-2007 \
+  --artifact-root ./artifacts
+```
+
+Training writes `progress.json` in the run directory and resumes automatically from `checkpoint_last.pth` unless `--no-resume` is passed.
+
+To run multiple models with overall progress tracking and suite-level resume:
+
+```bash
+uv run python scripts/run_suite.py \
+  --suite-name headline_models \
+  --configs \
+    configs/experiments/unet_resnet34.yaml \
+    configs/experiments/deeplabv3plus_resnet50.yaml \
+    configs/experiments/segformer_b2.yaml \
+    configs/experiments/sam2_hiera_s_frozen.yaml \
+  --data-root /path/to/VOCtrainval_06-Nov-2007 \
+  --artifact-root ./artifacts
+```
+
+To inspect saved progress after an interruption:
+
+```bash
+uv run python scripts/show_progress.py --path ./artifacts/suites/headline_models
+uv run python scripts/show_progress.py --path ./artifacts/runs/unet_resnet34
+```
+
+3. Evaluate a checkpoint on the locked official VOC validation split:
+
+```bash
+uv run python scripts/evaluate.py \
+  --config configs/experiments/unet_resnet34.yaml \
+  --checkpoint ./artifacts/runs/unet_resnet34/checkpoint_best.pth \
+  --data-root /path/to/VOCtrainval_06-Nov-2007 \
+  --artifact-root ./artifacts \
+  --split official_val
+```
+
+4. Aggregate completed runs into comparison tables and figures:
+
+```bash
+uv run python scripts/aggregate_results.py \
+  --run-dirs \
+    ./artifacts/evals/unet_resnet34 \
+    ./artifacts/evals/deeplabv3plus_resnet50 \
+    ./artifacts/evals/segformer_b2 \
+    ./artifacts/evals/sam2_hiera_s_frozen \
+  --output-dir ./artifacts/aggregate
+```
+
+## Core Outputs
+
+Each training/evaluation run writes standardized artifacts:
+
+- `metrics.json`
+- `per_class.csv`
+- `per_image.csv`
+- `train_log.csv`
+- `progress.json`
+- qualitative figures
+- prediction masks
+
+## Notes
+
+- `SegFormer` requires `timm`.
+- `SAM2` requires an external SAM2 installation and checkpoint/config paths in the experiment config.
+- The code preserves the Pascal VOC `255` void label as `ignore_index=255`.

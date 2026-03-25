@@ -1,0 +1,6 @@
+_base_: ../experiments/unet_resnet34.yaml
+
+experiment_name: unet_resnet50
+
+model:
+  backbone: resnet50

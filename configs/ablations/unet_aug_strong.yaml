@@ -1,0 +1,7 @@
+_base_: ../experiments/unet_resnet34.yaml
+
+experiment_name: unet_aug_strong
+
+data:
+  augmentation:
+    name: strong

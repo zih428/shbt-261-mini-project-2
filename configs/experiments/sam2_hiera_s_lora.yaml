@@ -1,0 +1,22 @@
+_base_: ../base/base.yaml
+
+experiment_name: sam2_hiera_s_lora
+
+model:
+  family: sam2_semantic
+  sam2:
+    # Update these paths for the local SAM2 installation/checkpoint.
+    config_path: /path/to/sam2_hiera_s.yaml
+    checkpoint_path: /path/to/sam2_hiera_s.pt
+    build_device: cpu
+    feature_channels: 256
+    decoder_channels: 256
+    freeze_backbone: true
+    lora:
+      enabled: true
+      target_modules: ["blocks", "attn", "mlp"]
+      rank: 8
+      alpha: 16.0
+
+optimizer:
+  lr: 0.00005

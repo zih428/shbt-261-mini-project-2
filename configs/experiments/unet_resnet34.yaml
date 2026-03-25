@@ -1,0 +1,11 @@
+_base_: ../base/base.yaml
+
+experiment_name: unet_resnet34
+
+model:
+  family: unet
+  backbone: resnet34
+  pretrained: true
+
+optimizer:
+  lr: 0.0003
