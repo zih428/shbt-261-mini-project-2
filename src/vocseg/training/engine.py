@@ -134,7 +134,20 @@ def build_optimizer(model: nn.Module, optimizer_cfg: dict[str, Any]) -> torch.op
 def build_scheduler(
     optimizer: torch.optim.Optimizer,
     scheduler_cfg: dict[str, Any],
-) -> torch.optim.lr_scheduler.LambdaLR:
+) -> torch.optim.lr_scheduler.LRScheduler | torch.optim.lr_scheduler.ReduceLROnPlateau:
+    name = str(scheduler_cfg.get("name", "cosine")).lower()
+    if name == "plateau":
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            factor=float(scheduler_cfg.get("factor", 0.5)),
+            patience=int(scheduler_cfg.get("patience", 5)),
+            threshold=float(scheduler_cfg.get("threshold", 1e-3)),
+            min_lr=float(scheduler_cfg.get("min_lr", 1e-6)),
+        )
+    if name != "cosine":
+        raise ValueError(f"Unsupported scheduler: {name}")
+
     max_epochs = int(scheduler_cfg["max_epochs"])
     warmup_epochs = int(scheduler_cfg.get("warmup_epochs", 0))
 
@@ -146,3 +159,15 @@ def build_scheduler(
         return 0.5 * (1.0 + np.cos(np.pi * progress))
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+
+
+def step_scheduler(
+    scheduler: torch.optim.lr_scheduler.LRScheduler | torch.optim.lr_scheduler.ReduceLROnPlateau,
+    metric_value: float | None = None,
+) -> None:
+    if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+        if metric_value is None:
+            raise ValueError("Plateau scheduler requires a validation metric.")
+        scheduler.step(metric_value)
+        return
+    scheduler.step()

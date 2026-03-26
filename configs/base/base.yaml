@@ -25,13 +25,21 @@ optimizer:
   betas: [0.9, 0.999]
 
 scheduler:
-  max_epochs: 60
-  warmup_epochs: 5
+  name: plateau
+  max_epochs: 150
+  factor: 0.5
+  patience: 5
+  threshold: 0.001
+  min_lr: 1.0e-6
 
 training:
   seed: 42
   deterministic: false
-  early_stopping_patience: 10
+  policy_version: 2
+  monitor: mIoU
+  min_epochs: 20
+  early_stopping_patience: 15
+  early_stopping_min_delta: 0.002
 
 loss:
   name: ce_dice

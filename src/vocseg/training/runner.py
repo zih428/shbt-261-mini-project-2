@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -11,15 +13,15 @@ import torch
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
 
-from vocseg.config import dump_config
+from vocseg.config import dump_config, load_config
 from vocseg.constants import NUM_CLASSES
 from vocseg.data import build_dataset_bundle, segmentation_collate_fn
 from vocseg.models import build_model
-from vocseg.training.engine import build_optimizer, build_scheduler, evaluate_model, train_one_epoch
+from vocseg.training.engine import build_optimizer, build_scheduler, evaluate_model, step_scheduler, train_one_epoch
 from vocseg.training.losses import build_loss
 from vocseg.training.progress import compute_percent, load_history_if_exists, read_json_if_exists, utc_now_iso, write_progress_file
 from vocseg.training.suite import load_suite_state, save_suite_state
-from vocseg.utils.distributed import DistributedState, is_main_process
+from vocseg.utils.distributed import DistributedState, barrier, is_main_process
 from vocseg.utils.io import ensure_dir, save_dataframe, save_json
 from vocseg.utils.model_stats import count_parameters
 
@@ -58,6 +60,99 @@ def _suite_prefix(progress_context: dict[str, Any] | None) -> str:
     if run_index is None or total_runs is None:
         return ""
     return f"[model {run_index}/{total_runs}] "
+
+
+def _extract_training_policy(config: dict[str, Any]) -> dict[str, Any]:
+    training_cfg = config.get("training", {})
+    scheduler_cfg = config.get("scheduler", {})
+    return {
+        "policy_version": int(training_cfg.get("policy_version", 1)),
+        "monitor": str(training_cfg.get("monitor", "mIoU")),
+        "min_epochs": int(training_cfg.get("min_epochs", 0)),
+        "early_stopping_patience": int(training_cfg.get("early_stopping_patience", 10)),
+        "early_stopping_min_delta": float(training_cfg.get("early_stopping_min_delta", 0.0)),
+        "scheduler": deepcopy(scheduler_cfg),
+    }
+
+
+def _normalize_resume_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = deepcopy(config)
+    normalized.pop("_config_path", None)
+    data_cfg = normalized.get("data")
+    if isinstance(data_cfg, dict):
+        data_cfg = deepcopy(data_cfg)
+        data_cfg.pop("metadata_dir", None)
+        normalized["data"] = data_cfg
+    return normalized
+
+
+def _load_saved_run_config(run_dir: Path) -> dict[str, Any] | None:
+    resolved_config_path = run_dir / "resolved_config.yaml"
+    if resolved_config_path.exists():
+        return _normalize_resume_config(load_config(resolved_config_path))
+
+    checkpoint_last_path = run_dir / "checkpoint_last.pth"
+    if not checkpoint_last_path.exists():
+        return None
+
+    checkpoint = torch.load(checkpoint_last_path, map_location="cpu")
+    saved_config = checkpoint.get("config")
+    if not isinstance(saved_config, dict):
+        return None
+    return _normalize_resume_config(saved_config)
+
+
+def run_artifacts_are_compatible(config: dict[str, Any], artifact_root: str | Path) -> bool:
+    run_dir = Path(artifact_root) / "runs" / config["experiment_name"]
+    saved_config = _load_saved_run_config(run_dir)
+    if saved_config is None:
+        return True
+    return saved_config == _normalize_resume_config(config)
+
+
+def _archive_incompatible_run_dir(run_dir: Path, artifact_root: Path) -> Path:
+    archive_root = ensure_dir(artifact_root / "runs_archive")
+    timestamp = utc_now_iso().replace(":", "-")
+    archive_path = archive_root / f"{run_dir.name}__{timestamp}"
+    suffix = 1
+    while archive_path.exists():
+        archive_path = archive_root / f"{run_dir.name}__{timestamp}_{suffix}"
+        suffix += 1
+    shutil.move(str(run_dir), str(archive_path))
+    return archive_path
+
+
+def _prepare_run_dir(
+    *,
+    config: dict[str, Any],
+    artifact_root: Path,
+    distributed_state: DistributedState,
+    resume: bool,
+    progress_context: dict[str, Any] | None,
+    print_progress: bool,
+) -> Path:
+    experiment_name = config["experiment_name"]
+    run_dir = artifact_root / "runs" / experiment_name
+    archive_path: Path | None = None
+    if resume and run_dir.exists() and not run_artifacts_are_compatible(config, artifact_root):
+        if is_main_process(distributed_state):
+            archive_path = _archive_incompatible_run_dir(run_dir, artifact_root)
+        barrier(distributed_state)
+        if is_main_process(distributed_state) and print_progress:
+            prefix = _suite_prefix(progress_context)
+            print(
+                f"{prefix}{experiment_name}: archived stale run artifacts to {archive_path} "
+                "because the training config changed."
+            )
+    return ensure_dir(run_dir)
+
+
+def _resolve_monitor_value(metrics: dict[str, Any], monitor: str) -> float:
+    key = monitor.removeprefix("dev_")
+    if key not in metrics:
+        available = ", ".join(sorted(metrics.keys()))
+        raise KeyError(f"Monitor '{monitor}' not found in validation summary. Available metrics: {available}")
+    return float(metrics[key])
 
 
 def _update_suite_run_state(
@@ -121,6 +216,7 @@ def _write_run_progress(
         "resumed_from_epoch": resumed_from_epoch,
         "elapsed_training_time_seconds": elapsed_training_time_seconds,
         "epochs_without_improvement": epochs_without_improvement,
+        "training_policy": _extract_training_policy(config),
         "best_dev_metrics": best_metrics or {},
         "latest_epoch_metrics": latest_epoch_metrics or {},
         "updated_at": utc_now_iso(),
@@ -157,7 +253,14 @@ def fit(
 ) -> Path:
     experiment_name = config["experiment_name"]
     artifact_root = Path(artifact_root)
-    run_dir = ensure_dir(artifact_root / "runs" / experiment_name)
+    run_dir = _prepare_run_dir(
+        config=config,
+        artifact_root=artifact_root,
+        distributed_state=distributed_state,
+        resume=resume,
+        progress_context=progress_context,
+        print_progress=print_progress,
+    )
     metadata_dir = config["data"]["metadata_dir"]
     dataset_bundle = build_dataset_bundle(config["data"], data_root=data_root, metadata_dir=metadata_dir)
 
@@ -181,8 +284,11 @@ def fit(
     loss_fn = build_loss(config["loss"])
     use_amp = bool(config["runtime"].get("amp", True))
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp and device.type == "cuda")
+    monitor = str(config["training"].get("monitor", "mIoU"))
+    min_epochs = int(config["training"].get("min_epochs", 0))
     max_epochs = int(config["scheduler"]["max_epochs"])
     patience = int(config["training"].get("early_stopping_patience", 10))
+    min_delta = float(config["training"].get("early_stopping_min_delta", 0.0))
     train_log_path = run_dir / "train_log.csv"
     checkpoint_last_path = run_dir / "checkpoint_last.pth"
     checkpoint_best_path = run_dir / "checkpoint_best.pth"
@@ -258,7 +364,6 @@ def fit(
             scaler=scaler,
             amp=use_amp,
         )
-        scheduler.step()
 
         dev_results = evaluate_model(
             model=model,
@@ -269,8 +374,8 @@ def fit(
             include_background_hd95=bool(config["metrics"].get("hd95_include_background", False)),
         )
         dev_summary = dev_results["summary"]
-        current_score = float(dev_summary["mIoU"])
         current_lr = float(optimizer.param_groups[0]["lr"])
+        current_score = _resolve_monitor_value(dev_summary, monitor)
 
         row = {
             "epoch": epoch,
@@ -286,7 +391,7 @@ def fit(
         train_history.append(row)
         elapsed_training_time_seconds = elapsed_before_resume + (time.perf_counter() - start_time)
 
-        if current_score > best_score:
+        if current_score > (best_score + min_delta):
             best_score = current_score
             best_metrics = {
                 "epoch": epoch,
@@ -311,6 +416,8 @@ def fit(
                 )
         else:
             epochs_without_improvement += 1
+
+        step_scheduler(scheduler, metric_value=current_score)
 
         if is_main_process(distributed_state):
             torch.save(
@@ -350,14 +457,15 @@ def fit(
             )
             if print_progress:
                 prefix = _suite_prefix(progress_context)
-                best_text = "nan" if not best_metrics else f"{best_metrics['mIoU']:.4f}"
+                best_value = None if not best_metrics else _resolve_monitor_value(best_metrics, monitor)
+                best_text = "nan" if best_value is None else f"{best_value:.4f}"
                 print(
                     f"{prefix}{experiment_name}: epoch {completed_epochs}/{max_epochs} "
-                    f"train_loss={row['train_loss']:.4f} dev_mIoU={row['dev_mIoU']:.4f} "
-                    f"best_mIoU={best_text} eta_s={eta_seconds:.0f}"
+                    f"train_loss={row['train_loss']:.4f} {monitor}={current_score:.4f} "
+                    f"best_{monitor}={best_text} eta_s={eta_seconds:.0f}"
                 )
 
-        if epochs_without_improvement >= patience:
+        if (epoch + 1) >= min_epochs and epochs_without_improvement >= patience:
             break
 
     total_time = elapsed_before_resume + (time.perf_counter() - start_time)
@@ -372,6 +480,7 @@ def fit(
             "peak_gpu_memory_gb": peak_memory,
             "total_parameters": count_parameters(_unwrap_model(model)),
             "trainable_parameters": count_parameters(_unwrap_model(model), trainable_only=True),
+            "training_policy": _extract_training_policy(config),
             "best_dev_metrics": best_metrics or {},
         }
         save_json(summary, run_dir / "metrics.json")
@@ -390,7 +499,8 @@ def fit(
         )
         if print_progress:
             prefix = _suite_prefix(progress_context)
-            best_text = "nan" if not best_metrics else f"{best_metrics['mIoU']:.4f}"
-            print(f"{prefix}{experiment_name}: completed. best_dev_mIoU={best_text}")
+            best_value = None if not best_metrics else _resolve_monitor_value(best_metrics, monitor)
+            best_text = "nan" if best_value is None else f"{best_value:.4f}"
+            print(f"{prefix}{experiment_name}: completed. best_{monitor}={best_text}")
 
     return run_dir

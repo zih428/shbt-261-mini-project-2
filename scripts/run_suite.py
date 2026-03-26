@@ -8,7 +8,7 @@ from pathlib import Path
 
 from vocseg.config import load_config
 from vocseg.training.progress import read_json_if_exists, write_progress_file
-from vocseg.training.runner import fit
+from vocseg.training.runner import fit, run_artifacts_are_compatible
 from vocseg.training.suite import build_initial_suite_state, load_suite_state, save_suite_state, update_suite_overall_progress
 from vocseg.utils.distributed import cleanup_distributed, init_distributed, is_main_process
 from vocseg.utils.repro import seed_everything
@@ -66,14 +66,20 @@ def main() -> None:
 
         total_runs = len(args.configs)
         for index, config_path in enumerate(args.configs, start=1):
+            config = load_config(config_path)
+            config["data"]["metadata_dir"] = _resolve_metadata_dir(config, artifact_root)
+            metrics_path = artifact_root / "runs" / config["experiment_name"] / "metrics.json"
             suite_state = load_suite_state(suite_state_path) or suite_state
             run_state = suite_state["runs"][index - 1]
-            if run_state["status"] == "completed" and not args.no_resume:
+            if (
+                run_state["status"] == "completed"
+                and not args.no_resume
+                and metrics_path.exists()
+                and run_artifacts_are_compatible(config, artifact_root)
+            ):
                 print(f"[model {index}/{total_runs}] {run_state['run_name']}: already completed, skipping.")
                 continue
 
-            config = load_config(config_path)
-            config["data"]["metadata_dir"] = _resolve_metadata_dir(config, artifact_root)
             seed_everything(int(config["training"].get("seed", 42)), deterministic=bool(config["training"].get("deterministic", False)))
 
             run_state["status"] = "running"
