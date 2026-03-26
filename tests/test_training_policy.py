@@ -4,7 +4,11 @@ import torch
 
 from vocseg.config import dump_config
 from vocseg.training.engine import build_scheduler, step_scheduler
-from vocseg.training.runner import run_artifacts_are_compatible
+from vocseg.training.runner import (
+    _normalize_best_metrics_epoch,
+    _normalize_history_epochs,
+    run_artifacts_are_compatible,
+)
 
 
 def _sample_config() -> dict:
@@ -88,3 +92,28 @@ def test_resume_compatibility_rejects_old_training_policy(tmp_path):
     current_config = deepcopy(_sample_config())
 
     assert not run_artifacts_are_compatible(current_config, artifact_root)
+
+
+def test_resume_normalizes_zero_based_history_epochs():
+    history = [
+        {"epoch": 0, "dev_mIoU": 0.10},
+        {"epoch": 1, "dev_mIoU": 0.15},
+        {"epoch": 2, "dev_mIoU": 0.20},
+    ]
+
+    normalized = _normalize_history_epochs(history)
+
+    assert [row["epoch"] for row in normalized] == [1, 2, 3]
+
+
+def test_resume_normalizes_best_metrics_epoch_from_history():
+    history = [
+        {"epoch": 1, "dev_mIoU": 0.10},
+        {"epoch": 2, "dev_mIoU": 0.15},
+        {"epoch": 3, "dev_mIoU": 0.20},
+    ]
+    best_metrics = {"epoch": 2, "mIoU": 0.20}
+
+    normalized = _normalize_best_metrics_epoch(best_metrics, history, monitor="mIoU")
+
+    assert normalized == {"epoch": 3, "mIoU": 0.20}

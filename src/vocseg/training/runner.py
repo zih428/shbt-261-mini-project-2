@@ -163,6 +163,70 @@ def _resolve_monitor_value(metrics: dict[str, Any], monitor: str) -> float:
     return float(metrics[key])
 
 
+def _normalize_history_epochs(train_history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not train_history:
+        return train_history
+
+    epoch_values: list[int] = []
+    for row in train_history:
+        epoch_value = row.get("epoch")
+        if epoch_value is None or pd.isna(epoch_value):
+            return train_history
+        epoch_values.append(int(epoch_value))
+
+    expected_zero_based = list(range(len(train_history)))
+    if epoch_values != expected_zero_based:
+        return train_history
+
+    normalized_history: list[dict[str, Any]] = []
+    for index, row in enumerate(train_history, start=1):
+        normalized_row = dict(row)
+        normalized_row["epoch"] = index
+        normalized_history.append(normalized_row)
+    return normalized_history
+
+
+def _normalize_best_metrics_epoch(
+    best_metrics: dict[str, Any] | None,
+    train_history: list[dict[str, Any]],
+    monitor: str,
+) -> dict[str, Any] | None:
+    if not best_metrics or not train_history:
+        return best_metrics
+
+    metric_key = monitor.removeprefix("dev_")
+    best_value = best_metrics.get(metric_key)
+    if best_value is None:
+        return best_metrics
+
+    history_key = f"dev_{metric_key}"
+    matching_epochs: list[int] = []
+    for row in train_history:
+        history_value = row.get(history_key)
+        if history_value is None or pd.isna(history_value):
+            continue
+        if abs(float(history_value) - float(best_value)) <= 1e-12:
+            matching_epochs.append(int(row["epoch"]))
+
+    if not matching_epochs:
+        return best_metrics
+
+    normalized_metrics = deepcopy(best_metrics)
+    saved_epoch = best_metrics.get("epoch")
+    if saved_epoch is not None and not pd.isna(saved_epoch):
+        saved_epoch_int = int(saved_epoch)
+        zero_based_candidate = saved_epoch_int + 1
+        if zero_based_candidate in matching_epochs:
+            normalized_metrics["epoch"] = zero_based_candidate
+            return normalized_metrics
+        if saved_epoch_int in matching_epochs:
+            normalized_metrics["epoch"] = saved_epoch_int
+            return normalized_metrics
+
+    normalized_metrics["epoch"] = matching_epochs[0]
+    return normalized_metrics
+
+
 def _update_suite_run_state(
     progress_context: dict[str, Any] | None,
     run_name: str,
@@ -318,6 +382,7 @@ def fit(
 
     start_time = time.perf_counter()
     train_history = load_history_if_exists(train_log_path) if resume else []
+    train_history = _normalize_history_epochs(train_history)
     best_score = float("-inf")
     epochs_without_improvement = 0
     best_metrics: dict[str, Any] | None = None
@@ -338,10 +403,11 @@ def fit(
         best_score = float(checkpoint.get("best_score", float("-inf")))
         epochs_without_improvement = int(checkpoint.get("epochs_without_improvement", 0))
         best_metrics = checkpoint.get("best_metrics")
+        best_metrics = _normalize_best_metrics_epoch(best_metrics, train_history, monitor)
         elapsed_before_resume = float(checkpoint.get("elapsed_training_time_seconds", 0.0))
         if is_main_process(distributed_state) and print_progress:
             prefix = _suite_prefix(progress_context)
-            print(f"{prefix}{experiment_name}: resuming from epoch {start_epoch}/{max_epochs}.")
+            print(f"{prefix}{experiment_name}: resuming at epoch {start_epoch + 1}/{max_epochs}.")
 
     if is_main_process(distributed_state):
         initial_status = "resuming" if start_epoch > 0 else "running"
@@ -387,8 +453,9 @@ def fit(
         current_lr = float(optimizer.param_groups[0]["lr"])
         current_score = _resolve_monitor_value(dev_summary, monitor)
 
+        completed_epochs = epoch + 1
         row = {
-            "epoch": epoch,
+            "epoch": completed_epochs,
             "train_loss": train_stats["loss"],
             "train_images_per_second": train_stats["images_per_second"],
             "train_epoch_time_seconds": train_stats["epoch_time_seconds"],
@@ -404,7 +471,7 @@ def fit(
         if current_score > (best_score + min_delta):
             best_score = current_score
             best_metrics = {
-                "epoch": epoch,
+                "epoch": completed_epochs,
                 **dev_summary,
             }
             epochs_without_improvement = 0
@@ -448,7 +515,6 @@ def fit(
             history_df = pd.DataFrame(train_history)
             save_dataframe(history_df, train_log_path)
             avg_epoch_time = float(history_df["train_epoch_time_seconds"].mean()) if not history_df.empty else 0.0
-            completed_epochs = epoch + 1
             epochs_remaining = max(max_epochs - completed_epochs, 0)
             eta_seconds = avg_epoch_time * epochs_remaining
             row["eta_seconds"] = eta_seconds
