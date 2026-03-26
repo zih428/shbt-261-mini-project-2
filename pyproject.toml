@@ -24,6 +24,7 @@ dependencies = [
 models = [
   "timm>=0.9.16",
   "segmentation-models-pytorch>=0.3.3",
+  "transformers>=4.48",
 ]
 sam2 = [
   "sam2",

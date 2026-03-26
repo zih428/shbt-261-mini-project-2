@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from urllib.parse import urlparse
+
 import torch
 import torch.nn as nn
 from torchvision.models import ResNet18_Weights, ResNet34_Weights, ResNet50_Weights
@@ -37,7 +40,23 @@ def build_resnet_encoder(
     kwargs = {}
     if replace_stride_with_dilation is not None:
         kwargs["replace_stride_with_dilation"] = replace_stride_with_dilation
-    return builder(weights=weights if pretrained else None, **kwargs)
+    if not pretrained:
+        return builder(weights=None, **kwargs)
+
+    cache_path = Path(torch.hub.get_dir()) / "checkpoints" / Path(urlparse(weights.url).path).name
+    if cache_path.exists():
+        model = builder(weights=None, **kwargs)
+        state_dict = torch.load(cache_path, map_location="cpu", weights_only=False)
+        model.load_state_dict(state_dict)
+        return model
+
+    try:
+        return builder(weights=weights, **kwargs)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to load pretrained weights for {backbone}. "
+            f"Cache the checkpoint first with `uv run python scripts/fetch_pretrained_assets.py --resnets {backbone}`."
+        ) from exc
 
 
 def extract_resnet_feature_pyramid(backbone: nn.Module, x: torch.Tensor) -> list[torch.Tensor]:

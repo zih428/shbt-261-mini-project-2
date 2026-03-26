@@ -1,0 +1,7 @@
+_base_: ../local_runs/unet_resnet34_mps.yaml
+
+experiment_name: unet_aug_none_pretrained_mps
+
+data:
+  augmentation:
+    name: none

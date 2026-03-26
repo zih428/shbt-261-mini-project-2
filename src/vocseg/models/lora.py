@@ -34,17 +34,30 @@ class LoRAConv2d(nn.Module):
         return self.base(x) + self.lora_b(self.lora_a(x)) * self.scale
 
 
-def apply_lora_to_matching_modules(module: nn.Module, target_substrings: list[str], rank: int, alpha: float) -> list[str]:
+def apply_lora_to_matching_modules(
+    module: nn.Module,
+    target_substrings: list[str],
+    rank: int,
+    alpha: float,
+    prefix: str = "",
+) -> list[str]:
     patched: list[str] = []
     for name, child in list(module.named_children()):
-        full_match = any(token in name for token in target_substrings)
+        full_name = f"{prefix}.{name}" if prefix else name
+        full_match = any(token in full_name for token in target_substrings)
         if isinstance(child, nn.Linear) and full_match:
             setattr(module, name, LoRALinear(child, rank=rank, alpha=alpha))
-            patched.append(name)
+            patched.append(full_name)
         elif isinstance(child, nn.Conv2d) and full_match:
             setattr(module, name, LoRAConv2d(child, rank=rank, alpha=alpha))
-            patched.append(name)
+            patched.append(full_name)
         else:
-            nested = apply_lora_to_matching_modules(child, target_substrings, rank=rank, alpha=alpha)
-            patched.extend([f"{name}.{item}" for item in nested])
+            nested = apply_lora_to_matching_modules(
+                child,
+                target_substrings,
+                rank=rank,
+                alpha=alpha,
+                prefix=full_name,
+            )
+            patched.extend(nested)
     return patched

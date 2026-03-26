@@ -1,0 +1,11 @@
+_base_: ../experiments/sam2_hiera_s_frozen.yaml
+
+experiment_name: sam2_hiera_s_frozen_pretrained_mps
+
+data:
+  batch_size: 1
+  eval_batch_size: 1
+  num_workers: 4
+
+runtime:
+  amp: false

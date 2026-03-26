@@ -16,6 +16,7 @@ from vocseg.models.lora import apply_lora_to_matching_modules
 def _resolve_sam2_builder() -> Any:  # pragma: no cover - optional dependency
     candidates = [
         ("sam2.build_sam", "build_sam2"),
+        ("sam2.build_sam", "build_sam2_hf"),
         ("sam2.build_sam2", "build_sam2"),
     ]
     for module_name, attr_name in candidates:
@@ -44,11 +45,19 @@ class SAM2SemanticDecoder(nn.Module):
 class SAM2SemanticSegmentor(nn.Module):
     def __init__(self, num_classes: int, sam2_cfg: dict[str, Any]):
         super().__init__()
-        builder = _resolve_sam2_builder()
-        config_path = sam2_cfg["config_path"]
-        checkpoint_path = sam2_cfg["checkpoint_path"]
         device = sam2_cfg.get("build_device", "cpu")
-        self.sam_model = builder(config_path, checkpoint_path, device=device)
+        hf_model_id = sam2_cfg.get("hf_model_id")
+        if hf_model_id:
+            try:
+                from sam2.build_sam import build_sam2_hf
+            except ImportError as exc:  # pragma: no cover - optional dependency
+                raise ImportError("SAM2 Hugging Face loading requires the `sam2` package.") from exc
+            self.sam_model = build_sam2_hf(hf_model_id, device=device)
+        else:
+            builder = _resolve_sam2_builder()
+            config_path = sam2_cfg["config_path"]
+            checkpoint_path = sam2_cfg["checkpoint_path"]
+            self.sam_model = builder(config_path, checkpoint_path, device=device)
         self.image_encoder = self._resolve_image_encoder(self.sam_model)
         self.feature_channels = int(sam2_cfg.get("feature_channels", 256))
 
@@ -102,5 +111,5 @@ class SAM2SemanticSegmentor(nn.Module):
         return features
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features = self._extract_feature_map(x)
-        return self.decoder(features, output_size=x.shape[-2:])
+        features = self._extract_feature_map(x).contiguous()
+        return self.decoder(features, output_size=x.shape[-2:]).contiguous()

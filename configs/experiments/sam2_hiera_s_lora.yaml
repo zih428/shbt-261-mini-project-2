@@ -5,16 +5,14 @@ experiment_name: sam2_hiera_s_lora
 model:
   family: sam2_semantic
   sam2:
-    # Update these paths for the local SAM2 installation/checkpoint.
-    config_path: /path/to/sam2_hiera_s.yaml
-    checkpoint_path: /path/to/sam2_hiera_s.pt
+    hf_model_id: facebook/sam2-hiera-small
     build_device: cpu
     feature_channels: 256
     decoder_channels: 256
     freeze_backbone: true
     lora:
       enabled: true
-      target_modules: ["blocks", "attn", "mlp"]
+      target_modules: ["attn.qkv", "attn.proj", "mlp.layers.0", "mlp.layers.1"]
       rank: 8
       alpha: 16.0
 

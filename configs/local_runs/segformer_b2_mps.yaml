@@ -1,0 +1,17 @@
+_base_: ../experiments/segformer_b2.yaml
+
+experiment_name: segformer_b2_pretrained_mps
+
+model:
+  pretrained: true
+
+data:
+  batch_size: 1
+  eval_batch_size: 1
+  num_workers: 4
+
+runtime:
+  amp: false
+
+training:
+  gradient_accumulation_steps: 4

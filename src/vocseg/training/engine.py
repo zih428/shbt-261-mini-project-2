@@ -28,31 +28,43 @@ def train_one_epoch(
     device: torch.device,
     scaler: torch.cuda.amp.GradScaler | None = None,
     amp: bool = True,
+    accumulation_steps: int = 1,
 ) -> dict[str, float]:
     model.train()
     total_loss = 0.0
     total_images = 0
     start_time = time.perf_counter()
+    accumulation_steps = max(int(accumulation_steps), 1)
 
-    for batch in loader:
+    optimizer.zero_grad(set_to_none=True)
+
+    for batch_index, batch in enumerate(loader):
         images = batch["images"].to(device, non_blocking=True)
         masks = batch["masks"].to(device, non_blocking=True)
 
-        optimizer.zero_grad(set_to_none=True)
         with _autocast_context(device, enabled=amp and device.type == "cuda"):
             logits = model(images)
-            loss = loss_fn(logits, masks)
+            loss = loss_fn(logits, masks).contiguous()
+
+        loss_value = float(loss.item())
+        scaled_loss = loss / accumulation_steps
 
         if scaler is not None and amp and device.type == "cuda":
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            scaler.scale(scaled_loss).backward()
         else:
-            loss.backward()
-            optimizer.step()
+            scaled_loss.backward()
+
+        should_step = (batch_index + 1) % accumulation_steps == 0 or (batch_index + 1) == len(loader)
+        if should_step:
+            if scaler is not None and amp and device.type == "cuda":
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
 
         batch_size = images.shape[0]
-        total_loss += float(loss.item()) * batch_size
+        total_loss += loss_value * batch_size
         total_images += batch_size
 
     elapsed = time.perf_counter() - start_time

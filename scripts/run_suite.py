@@ -5,6 +5,12 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 from vocseg.config import load_config
 from vocseg.training.progress import read_json_if_exists, write_progress_file
@@ -65,6 +71,7 @@ def main() -> None:
             save_suite_state(suite_state_path, suite_state)
 
         total_runs = len(args.configs)
+        had_failures = False
         for index, config_path in enumerate(args.configs, start=1):
             config = load_config(config_path)
             config["data"]["metadata_dir"] = _resolve_metadata_dir(config, artifact_root)
@@ -110,15 +117,19 @@ def main() -> None:
                 _mark_suite_status(suite_state_path, "interrupted", run_index=index)
                 raise
             except Exception:
+                had_failures = True
                 _mark_suite_status(suite_state_path, "failed", run_index=index)
                 if args.stop_on_error:
                     raise
 
         suite_state = load_suite_state(suite_state_path) or suite_state
-        suite_state["status"] = "completed"
+        suite_state["status"] = "failed" if had_failures else "completed"
         save_suite_state(suite_state_path, suite_state)
         if is_main_process(distributed_state):
-            print(f"Suite complete. Progress saved to {suite_state_path}")
+            if had_failures:
+                print(f"Suite ended with failures. Progress saved to {suite_state_path}")
+            else:
+                print(f"Suite complete. Progress saved to {suite_state_path}")
     finally:
         cleanup_distributed(distributed_state)
 

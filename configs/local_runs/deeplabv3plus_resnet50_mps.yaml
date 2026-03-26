@@ -1,0 +1,14 @@
+_base_: ../experiments/deeplabv3plus_resnet50.yaml
+
+experiment_name: deeplabv3plus_resnet50_pretrained_mps
+
+model:
+  pretrained: true
+
+data:
+  batch_size: 4
+  eval_batch_size: 4
+  num_workers: 6
+
+runtime:
+  amp: false

@@ -18,14 +18,16 @@ class DiceLoss(nn.Module):
         self.smooth = smooth
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        logits = logits.contiguous()
+        target = target.contiguous()
         num_classes = logits.shape[1]
         valid_mask = target != self.ignore_index
         target_clamped = target.clone()
         target_clamped[~valid_mask] = 0
 
         probabilities = torch.softmax(logits, dim=1)
-        target_one_hot = F.one_hot(target_clamped, num_classes=num_classes).permute(0, 3, 1, 2).float()
-        valid_mask = valid_mask.unsqueeze(1)
+        target_one_hot = F.one_hot(target_clamped, num_classes=num_classes).permute(0, 3, 1, 2).contiguous().float()
+        valid_mask = valid_mask.unsqueeze(1).contiguous()
 
         probabilities = probabilities * valid_mask
         target_one_hot = target_one_hot * valid_mask
@@ -49,6 +51,8 @@ class CombinedSegmentationLoss(nn.Module):
         self.dice = DiceLoss(ignore_index=ignore_index)
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        logits = logits.contiguous()
+        target = target.contiguous()
         return self.ce_weight * self.cross_entropy(logits, target) + self.dice_weight * self.dice(logits, target)
 
 

@@ -5,6 +5,12 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 import torch
 
@@ -15,6 +21,14 @@ from vocseg.models import build_model
 from vocseg.training.engine import evaluate_model
 from vocseg.utils.io import ensure_dir, load_json, save_dataframe, save_json
 from vocseg.visualization.qualitative import plot_best_worst_triptychs, plot_per_class_iou, plot_person_panel
+
+
+def resolve_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 def resolve_metadata_dir(config: dict, artifact_root: Path) -> str:
@@ -53,9 +67,9 @@ def main() -> None:
         collate_fn=segmentation_collate_fn,
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = resolve_device()
     model = build_model(config["model"], num_classes=NUM_CLASSES).to(device)
-    checkpoint = torch.load(args.checkpoint, map_location=device)
+    checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 

@@ -52,6 +52,14 @@ def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
     return model.module if isinstance(model, DistributedDataParallel) else model
 
 
+def _resolve_device(distributed_state: DistributedState) -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda", distributed_state.local_rank)
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 def _suite_prefix(progress_context: dict[str, Any] | None) -> str:
     if not progress_context:
         return ""
@@ -95,7 +103,7 @@ def _load_saved_run_config(run_dir: Path) -> dict[str, Any] | None:
     if not checkpoint_last_path.exists():
         return None
 
-    checkpoint = torch.load(checkpoint_last_path, map_location="cpu")
+    checkpoint = torch.load(checkpoint_last_path, map_location="cpu", weights_only=False)
     saved_config = checkpoint.get("config")
     if not isinstance(saved_config, dict):
         return None
@@ -274,7 +282,7 @@ def fit(
     train_loader = _make_loader(train_dataset, batch_size, num_workers, shuffle=True, distributed=distributed_state)
     dev_loader = _make_loader(dev_dataset, eval_batch_size, num_workers, shuffle=False, distributed=distributed_state)
 
-    device = torch.device("cuda", distributed_state.local_rank) if torch.cuda.is_available() else torch.device("cpu")
+    device = _resolve_device(distributed_state)
     model = build_model(config["model"], num_classes=NUM_CLASSES).to(device)
     if distributed_state.enabled:
         model = DistributedDataParallel(model, device_ids=[distributed_state.local_rank] if device.type == "cuda" else None)
@@ -289,6 +297,7 @@ def fit(
     max_epochs = int(config["scheduler"]["max_epochs"])
     patience = int(config["training"].get("early_stopping_patience", 10))
     min_delta = float(config["training"].get("early_stopping_min_delta", 0.0))
+    accumulation_steps = int(config["training"].get("gradient_accumulation_steps", 1))
     train_log_path = run_dir / "train_log.csv"
     checkpoint_last_path = run_dir / "checkpoint_last.pth"
     checkpoint_best_path = run_dir / "checkpoint_best.pth"
@@ -317,7 +326,7 @@ def fit(
     resumed_from_epoch = 0
 
     if resume and checkpoint_last_path.exists():
-        checkpoint = torch.load(checkpoint_last_path, map_location=device)
+        checkpoint = torch.load(checkpoint_last_path, map_location=device, weights_only=False)
         _unwrap_model(model).load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
@@ -363,6 +372,7 @@ def fit(
             device=device,
             scaler=scaler,
             amp=use_amp,
+            accumulation_steps=accumulation_steps,
         )
 
         dev_results = evaluate_model(

@@ -1,0 +1,6 @@
+_base_: ../local_runs/unet_resnet34_mps.yaml
+
+experiment_name: unet_loss_dice_pretrained_mps
+
+loss:
+  name: dice

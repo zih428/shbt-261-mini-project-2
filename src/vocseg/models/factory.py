@@ -29,7 +29,7 @@ def build_model(model_cfg: dict[str, Any], num_classes: int) -> nn.Module:
     if family == "segformer":
         return SegFormer(
             num_classes=num_classes,
-            backbone_name=model_cfg.get("backbone", "mit_b2"),
+            backbone_name=model_cfg.get("backbone", "segformer_b2"),
             pretrained=model_cfg.get("pretrained", True),
             embedding_dim=int(model_cfg.get("embedding_dim", 256)),
         )
