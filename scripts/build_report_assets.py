@@ -43,7 +43,7 @@ HEADLINE_RUNS = [
     "unet_resnet34_pretrained_mps",
     "deeplabv3plus_resnet50_pretrained_mps",
     "segformer_b2_pretrained_mps",
-    "sam2_hiera_s_frozen_pretrained_mps",
+    "sam2_hiera_s_lora_pretrained_mps",
 ]
 
 DISPLAY_NAMES = {
