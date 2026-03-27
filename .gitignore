@@ -8,3 +8,10 @@ artifacts/
 data/
 dist/
 build/
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
