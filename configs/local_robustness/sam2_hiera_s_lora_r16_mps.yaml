@@ -1,0 +1,8 @@
+_base_: ../local_ablations/sam2_hiera_s_lora_mps.yaml
+
+experiment_name: sam2_hiera_s_lora_r16_pretrained_mps
+
+model:
+  sam2:
+    lora:
+      rank: 16

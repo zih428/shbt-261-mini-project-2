@@ -149,11 +149,122 @@
       "bootstrap_num_samples": 2000
     }
   ],
+  "split_sensitivity": [
+    {
+      "model_label": "SegFormer-B2",
+      "seed_list": "7, 19, 42",
+      "mean_mIoU": 0.5772207366733734,
+      "std_mIoU": 0.015065388550651584,
+      "min_mIoU": 0.5601609975851773,
+      "max_mIoU": 0.5886984713541613,
+      "span_mIoU": 2.8537473768983967
+    },
+    {
+      "model_label": "DeepLabV3+",
+      "seed_list": "7, 19, 42",
+      "mean_mIoU": 0.5189254941559234,
+      "std_mIoU": 0.06353608410843731,
+      "min_mIoU": 0.46437739688386276,
+      "max_mIoU": 0.588687338649503,
+      "span_mIoU": 12.43099417656402
+    }
+  ],
+  "lora_rank_sweep": [
+    {
+      "rank": 4,
+      "run_name": "sam2_hiera_s_lora_r4_pretrained_mps",
+      "display_name": "SAM2-LoRA r4",
+      "mIoU": 0.4626373332581783,
+      "mean_dice": 0.6017607490952228,
+      "training_hours": 1.3379243514583343,
+      "delta_vs_r8": 2.1133700745397777
+    },
+    {
+      "rank": 8,
+      "run_name": "sam2_hiera_s_lora_pretrained_mps",
+      "display_name": "SAM2-LoRA",
+      "mIoU": 0.4415036325127805,
+      "mean_dice": 0.575257104297305,
+      "training_hours": 0.8008149394097219,
+      "delta_vs_r8": 0.0
+    },
+    {
+      "rank": 16,
+      "run_name": "sam2_hiera_s_lora_r16_pretrained_mps",
+      "display_name": "SAM2-LoRA r16",
+      "mIoU": 0.37680554148747497,
+      "mean_dice": 0.5137056445000012,
+      "training_hours": 0.5018245774883325,
+      "delta_vs_r8": -6.469809102530554
+    }
+  ],
+  "top_confusions": [
+    {
+      "model": "DeepLabV3+",
+      "true_class": "tvmonitor",
+      "predicted_class": "sofa",
+      "confusion_pct": 89.26009815024537
+    },
+    {
+      "model": "DeepLabV3+",
+      "true_class": "dog",
+      "predicted_class": "cow",
+      "confusion_pct": 86.41107898066149
+    },
+    {
+      "model": "DeepLabV3+",
+      "true_class": "bicycle",
+      "predicted_class": "person",
+      "confusion_pct": 84.9445324881141
+    },
+    {
+      "model": "DeepLabV3+",
+      "true_class": "aeroplane",
+      "predicted_class": "person",
+      "confusion_pct": 84.66257668711657
+    },
+    {
+      "model": "DeepLabV3+",
+      "true_class": "cat",
+      "predicted_class": "dog",
+      "confusion_pct": 84.6313654283424
+    },
+    {
+      "model": "SegFormer-B2",
+      "true_class": "bicycle",
+      "predicted_class": "person",
+      "confusion_pct": 100.0
+    },
+    {
+      "model": "SegFormer-B2",
+      "true_class": "chair",
+      "predicted_class": "sofa",
+      "confusion_pct": 99.5399458059137
+    },
+    {
+      "model": "SegFormer-B2",
+      "true_class": "train",
+      "predicted_class": "bus",
+      "confusion_pct": 99.29747519498349
+    },
+    {
+      "model": "SegFormer-B2",
+      "true_class": "aeroplane",
+      "predicted_class": "train",
+      "confusion_pct": 96.74900846319603
+    },
+    {
+      "model": "SegFormer-B2",
+      "true_class": "bus",
+      "predicted_class": "train",
+      "confusion_pct": 96.2371430396729
+    }
+  ],
   "qualitative_ids": {
     "image_ids": [
-      "5212",
-      "2967",
-      "5144"
+      "661",
+      "9323",
+      "8430"
     ]
   },
   "sam2_comparison_ids": {

@@ -1,0 +1,6 @@
+_base_: ../local_runs/deeplabv3plus_resnet50_mps.yaml
+
+experiment_name: deeplabv3plus_resnet50_split_seed19_pretrained_mps
+
+data:
+  metadata_dir: dataset_split_seed19

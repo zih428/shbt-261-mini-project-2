@@ -1,0 +1,6 @@
+_base_: ../local_runs/segformer_b2_mps.yaml
+
+experiment_name: segformer_b2_split_seed7_pretrained_mps
+
+data:
+  metadata_dir: dataset_split_seed7

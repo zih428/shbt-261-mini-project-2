@@ -1,0 +1,11 @@
+model,true_class,predicted_class,confusion_pct
+DeepLabV3+,tvmonitor,sofa,89.26009815024537
+DeepLabV3+,dog,cow,86.41107898066149
+DeepLabV3+,bicycle,person,84.9445324881141
+DeepLabV3+,aeroplane,person,84.66257668711657
+DeepLabV3+,cat,dog,84.6313654283424
+SegFormer-B2,bicycle,person,100.0
+SegFormer-B2,chair,sofa,99.5399458059137
+SegFormer-B2,train,bus,99.29747519498349
+SegFormer-B2,aeroplane,train,96.74900846319603
+SegFormer-B2,bus,train,96.2371430396729

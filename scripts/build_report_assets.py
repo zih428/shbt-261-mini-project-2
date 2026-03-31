@@ -58,6 +58,60 @@ BOOTSTRAP_RUNS = HEADLINE_RUNS
 BOOTSTRAP_SAMPLES = 2000
 BOOTSTRAP_SEED = 42
 
+SPLIT_SENSITIVITY_GROUPS = [
+    {
+        "model_label": "DeepLabV3+",
+        "baseline_run": "deeplabv3plus_resnet50_pretrained_mps",
+        "alternate_runs": [
+            (7, "deeplabv3plus_resnet50_split_seed7_pretrained_mps"),
+            (19, "deeplabv3plus_resnet50_split_seed19_pretrained_mps"),
+        ],
+    },
+    {
+        "model_label": "SegFormer-B2",
+        "baseline_run": "segformer_b2_pretrained_mps",
+        "alternate_runs": [
+            (7, "segformer_b2_split_seed7_pretrained_mps"),
+            (19, "segformer_b2_split_seed19_pretrained_mps"),
+        ],
+    },
+]
+
+LORA_RANK_SPECS = [
+    (4, "sam2_hiera_s_lora_r4_pretrained_mps"),
+    (8, "sam2_hiera_s_lora_pretrained_mps"),
+    (16, "sam2_hiera_s_lora_r16_pretrained_mps"),
+]
+
+CONFUSION_MATRIX_RUNS = [
+    "deeplabv3plus_resnet50_pretrained_mps",
+    "segformer_b2_pretrained_mps",
+]
+
+SHORT_CLASS_LABELS = [
+    "bg",
+    "aero",
+    "bike",
+    "bird",
+    "boat",
+    "bottle",
+    "bus",
+    "car",
+    "cat",
+    "chair",
+    "cow",
+    "table",
+    "dog",
+    "horse",
+    "mbike",
+    "person",
+    "plant",
+    "sheep",
+    "sofa",
+    "train",
+    "tv",
+]
+
 DISPLAY_NAMES = {
     "unet_resnet18_pretrained_mps": "U-Net-R18",
     "unet_resnet34_pretrained_mps": "U-Net-R34",
@@ -70,6 +124,12 @@ DISPLAY_NAMES = {
     "unet_loss_dice_pretrained_mps": "U-Net Dice",
     "unet_aug_none_pretrained_mps": "U-Net NoAug",
     "unet_aug_strong_pretrained_mps": "U-Net StrongAug",
+    "deeplabv3plus_resnet50_split_seed7_pretrained_mps": "DeepLabV3+ (split 7)",
+    "deeplabv3plus_resnet50_split_seed19_pretrained_mps": "DeepLabV3+ (split 19)",
+    "segformer_b2_split_seed7_pretrained_mps": "SegFormer-B2 (split 7)",
+    "segformer_b2_split_seed19_pretrained_mps": "SegFormer-B2 (split 19)",
+    "sam2_hiera_s_lora_r4_pretrained_mps": "SAM2-LoRA r4",
+    "sam2_hiera_s_lora_r16_pretrained_mps": "SAM2-LoRA r16",
 }
 
 LONG_NAMES = {
@@ -84,6 +144,12 @@ LONG_NAMES = {
     "unet_loss_dice_pretrained_mps": "U-Net-ResNet34 with Dice loss",
     "unet_aug_none_pretrained_mps": "U-Net-ResNet34 without augmentation",
     "unet_aug_strong_pretrained_mps": "U-Net-ResNet34 with strong augmentation",
+    "deeplabv3plus_resnet50_split_seed7_pretrained_mps": "DeepLabV3+ with ResNet-50 backbone (split seed 7)",
+    "deeplabv3plus_resnet50_split_seed19_pretrained_mps": "DeepLabV3+ with ResNet-50 backbone (split seed 19)",
+    "segformer_b2_split_seed7_pretrained_mps": "SegFormer-B2 (split seed 7)",
+    "segformer_b2_split_seed19_pretrained_mps": "SegFormer-B2 (split seed 19)",
+    "sam2_hiera_s_lora_r4_pretrained_mps": "SAM2 semantic adapter with LoRA rank 4",
+    "sam2_hiera_s_lora_r16_pretrained_mps": "SAM2 semantic adapter with LoRA rank 16",
 }
 
 FAMILY_NAMES = {
@@ -96,8 +162,14 @@ FAMILY_NAMES = {
     "unet_aug_strong_pretrained_mps": "U-Net",
     "deeplabv3plus_resnet50_pretrained_mps": "DeepLabV3+",
     "segformer_b2_pretrained_mps": "SegFormer",
+    "segformer_b2_split_seed7_pretrained_mps": "SegFormer",
+    "segformer_b2_split_seed19_pretrained_mps": "SegFormer",
     "sam2_hiera_s_frozen_pretrained_mps": "SAM2",
     "sam2_hiera_s_lora_pretrained_mps": "SAM2",
+    "sam2_hiera_s_lora_r4_pretrained_mps": "SAM2",
+    "sam2_hiera_s_lora_r16_pretrained_mps": "SAM2",
+    "deeplabv3plus_resnet50_split_seed7_pretrained_mps": "DeepLabV3+",
+    "deeplabv3plus_resnet50_split_seed19_pretrained_mps": "DeepLabV3+",
 }
 
 FAMILY_COLORS = {
@@ -278,6 +350,13 @@ def build_results_bundle(eval_root: Path, run_root: Path, split: str) -> dict[st
     return bundles
 
 
+def build_named_bundles(run_names: list[str], eval_root: Path, run_root: Path, split: str) -> dict[str, dict]:
+    bundles = {}
+    for run_name in run_names:
+        bundles[run_name] = read_experiment_bundle(run_name, eval_root, run_root, split)
+    return bundles
+
+
 def build_summary_frame(bundles: dict[str, dict]) -> pd.DataFrame:
     frame = pd.DataFrame([bundles[run_name]["summary"] for run_name in RUN_ORDER])
     frame["training_hours"] = frame["training_time_seconds"] / 3600.0
@@ -321,6 +400,9 @@ def decode_color_mask(path: str | Path) -> np.ndarray:
 
 
 def build_image_confusions(bundle: dict) -> np.ndarray:
+    cached = bundle.get("_image_confusions")
+    if cached is not None:
+        return cached
     confusions: list[np.ndarray] = []
     for row in bundle["per_image"].itertuples():
         target = decode_color_mask(row.ground_truth_path)
@@ -329,7 +411,8 @@ def build_image_confusions(bundle: dict) -> np.ndarray:
         confusions.append(confusion)
     if not confusions:
         raise ValueError(f"No per-image evaluation rows found for {bundle['summary']['run_name']}")
-    return np.stack(confusions, axis=0)
+    bundle["_image_confusions"] = np.stack(confusions, axis=0)
+    return bundle["_image_confusions"]
 
 
 def bootstrap_miou_from_confusions(
@@ -370,6 +453,135 @@ def build_bootstrap_frame(summary: pd.DataFrame, bundles: dict[str, dict]) -> pd
         row.update(bootstrap_miou_from_confusions(build_image_confusions(bundles[run_name])))
         rows.append(row)
     return pd.DataFrame(rows).sort_values("mIoU", ascending=False).reset_index(drop=True)
+
+
+def aggregate_confusion_matrix(bundle: dict) -> np.ndarray:
+    cached = bundle.get("_aggregate_confusion")
+    if cached is not None:
+        return cached
+    bundle["_aggregate_confusion"] = build_image_confusions(bundle).sum(axis=0)
+    return bundle["_aggregate_confusion"]
+
+
+def normalize_confusion_rows(
+    matrix: np.ndarray,
+    exclude_background: bool = True,
+    off_diagonal_only: bool = False,
+) -> np.ndarray:
+    normalized = matrix.astype(np.float64)
+    if exclude_background:
+        normalized = normalized[1:, 1:]
+    if off_diagonal_only:
+        np.fill_diagonal(normalized, 0.0)
+    row_sums = normalized.sum(axis=1, keepdims=True)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        normalized = np.divide(normalized, row_sums, out=np.zeros_like(normalized), where=row_sums > 0)
+    return normalized
+
+
+def extract_top_confusions(matrix: np.ndarray, top_k: int = 5, exclude_background: bool = True) -> list[dict[str, float | str]]:
+    working = matrix.astype(np.float64)
+    start_index = 1 if exclude_background else 0
+    rows: list[dict[str, float | str]] = []
+    for true_class in range(start_index, working.shape[0]):
+        row = working[true_class].copy()
+        row[:start_index] = 0.0
+        row[true_class] = 0.0
+        row_sum = row.sum()
+        if row_sum <= 0:
+            continue
+        predicted_class = int(np.argmax(row))
+        confusion_fraction = float(row[predicted_class] / row_sum) if row[predicted_class] > 0 else 0.0
+        if confusion_fraction <= 0:
+            continue
+        rows.append(
+            {
+                "true_class": VOC_CLASSES[true_class],
+                "predicted_class": VOC_CLASSES[predicted_class],
+                "confusion_pct": 100.0 * confusion_fraction,
+            }
+        )
+    rows.sort(key=lambda row: float(row["confusion_pct"]), reverse=True)
+    return rows[:top_k]
+
+
+def build_split_sensitivity_frame(summary: pd.DataFrame, bundles: dict[str, dict]) -> pd.DataFrame:
+    indexed_summary = summary.set_index("run_name")
+    rows = []
+    for group in SPLIT_SENSITIVITY_GROUPS:
+        baseline_row = indexed_summary.loc[group["baseline_run"]]
+        rows.append(
+            {
+                "model_label": group["model_label"],
+                "split_seed": 42,
+                "run_name": group["baseline_run"],
+                "mIoU": float(baseline_row["mIoU"]),
+                "mean_dice": float(baseline_row["mean_dice"]),
+                "best_dev_epoch": int(baseline_row["best_dev_epoch"]),
+                "training_hours": float(baseline_row["training_hours"]),
+            }
+        )
+        for split_seed, run_name in group["alternate_runs"]:
+            alt_row = bundles[run_name]["summary"]
+            rows.append(
+                {
+                    "model_label": group["model_label"],
+                    "split_seed": int(split_seed),
+                    "run_name": run_name,
+                    "mIoU": float(alt_row["mIoU"]),
+                    "mean_dice": float(alt_row["mean_dice"]),
+                    "best_dev_epoch": int(alt_row["best_dev_epoch"]),
+                    "training_hours": float(alt_row["training_time_seconds"]) / 3600.0,
+                }
+            )
+    frame = pd.DataFrame(rows).sort_values(["model_label", "split_seed"]).reset_index(drop=True)
+    baseline = frame[frame["split_seed"] == 42].set_index("model_label")["mIoU"].to_dict()
+    frame["delta_vs_seed42"] = frame.apply(lambda row: metric_pct(float(row["mIoU"]) - baseline[row["model_label"]]), axis=1)
+    return frame
+
+
+def summarize_split_sensitivity(frame: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for model_label, group in frame.groupby("model_label"):
+        miou_values = group["mIoU"].to_numpy(dtype=float)
+        rows.append(
+            {
+                "model_label": model_label,
+                "seed_list": ", ".join(str(int(seed)) for seed in group["split_seed"].tolist()),
+                "mean_mIoU": float(np.mean(miou_values)),
+                "std_mIoU": float(np.std(miou_values, ddof=1)) if len(miou_values) > 1 else 0.0,
+                "min_mIoU": float(np.min(miou_values)),
+                "max_mIoU": float(np.max(miou_values)),
+                "span_mIoU": metric_pct(float(np.max(miou_values) - np.min(miou_values))),
+            }
+        )
+    return pd.DataFrame(rows).sort_values("mean_mIoU", ascending=False).reset_index(drop=True)
+
+
+def build_lora_rank_frame(summary: pd.DataFrame, bundles: dict[str, dict]) -> pd.DataFrame:
+    indexed_summary = summary.set_index("run_name")
+    rows = []
+    for rank, run_name in LORA_RANK_SPECS:
+        if run_name in indexed_summary.index:
+            row = indexed_summary.loc[run_name].to_dict()
+            training_hours = float(row["training_hours"])
+        else:
+            row = bundles[run_name]["summary"]
+            training_hours = float(row["training_time_seconds"]) / 3600.0
+        rows.append(
+            {
+                "rank": int(rank),
+                "run_name": run_name,
+                "display_name": DISPLAY_NAMES[run_name],
+                "mIoU": float(row["mIoU"]),
+                "mean_dice": float(row["mean_dice"]),
+                "training_hours": training_hours,
+            }
+        )
+    frame = pd.DataFrame(rows).sort_values("rank").reset_index(drop=True)
+    baseline = float(frame[frame["rank"] == 8]["mIoU"].iloc[0])
+    frame["delta_vs_r8"] = metric_pct(frame["mIoU"] - baseline)
+    return frame
 
 
 def make_main_results_table(summary: pd.DataFrame, output_path: Path) -> None:
@@ -440,6 +652,39 @@ def make_bootstrap_table(frame: pd.DataFrame, output_path: Path) -> None:
         lines.append(
             f"{latex_escape(row.display_name)} & {format_percent(row.mIoU)} & "
             f"{format_percent(row.bootstrap_mean_mIoU)} & {ci_text} \\\\"
+        )
+    lines.extend([r"\bottomrule", r"\end{tabular}"])
+    write_text(output_path, "\n".join(lines) + "\n")
+
+
+def make_split_sensitivity_table(frame: pd.DataFrame, output_path: Path) -> None:
+    lines = [
+        r"\begin{tabular}{lrrrr}",
+        r"\toprule",
+        r"Model & Split Seeds & Mean mIoU & Std. & Range \\",
+        r"\midrule",
+    ]
+    for row in frame.itertuples():
+        range_text = f"[{format_percent(row.min_mIoU)}, {format_percent(row.max_mIoU)}]"
+        lines.append(
+            f"{latex_escape(row.model_label)} & {latex_escape(row.seed_list)} & {format_percent(row.mean_mIoU)} & "
+            f"{format_percent(row.std_mIoU)} & {range_text} \\\\"
+        )
+    lines.extend([r"\bottomrule", r"\end{tabular}"])
+    write_text(output_path, "\n".join(lines) + "\n")
+
+
+def make_lora_rank_table(frame: pd.DataFrame, output_path: Path) -> None:
+    lines = [
+        r"\begin{tabular}{lrrrr}",
+        r"\toprule",
+        r"Rank & mIoU & $\Delta$ mIoU vs. r=8 & Dice & Train hrs \\",
+        r"\midrule",
+    ]
+    for row in frame.itertuples():
+        lines.append(
+            f"{row.rank} & {format_percent(row.mIoU)} & {row.delta_vs_r8:+.1f} & "
+            f"{format_percent(row.mean_dice)} & {format_float(row.training_hours)} \\\\"
         )
     lines.extend([r"\bottomrule", r"\end{tabular}"])
     write_text(output_path, "\n".join(lines) + "\n")
@@ -565,6 +810,40 @@ def plot_unet_backbone_trajectories(bundles: dict[str, dict], output_path: Path)
     figure.tight_layout()
     figure.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(figure)
+
+
+def plot_confusion_matrix_panels(bundles: dict[str, dict], output_path: Path) -> pd.DataFrame:
+    labels = SHORT_CLASS_LABELS[1:]
+    figure, axes = plt.subplots(1, len(CONFUSION_MATRIX_RUNS), figsize=(12.6, 5.8))
+    if len(CONFUSION_MATRIX_RUNS) == 1:
+        axes = [axes]
+
+    top_confusion_rows: list[dict[str, float | str]] = []
+    heatmap = None
+    for axis, run_name in zip(axes, CONFUSION_MATRIX_RUNS):
+        matrix = aggregate_confusion_matrix(bundles[run_name])
+        normalized = normalize_confusion_rows(matrix, exclude_background=True, off_diagonal_only=True)
+        heatmap = axis.imshow(normalized * 100.0, cmap="magma", aspect="auto", vmin=0.0, vmax=100.0)
+        axis.set_title(DISPLAY_NAMES[run_name])
+        axis.set_xticks(np.arange(len(labels)))
+        axis.set_xticklabels(labels, rotation=45, ha="right")
+        axis.set_yticks(np.arange(len(labels)))
+        axis.set_yticklabels(labels)
+        axis.set_xlabel("Predicted class")
+        axis.set_ylabel("True class")
+        axis.tick_params(axis="both", labelsize=7)
+
+        for row in extract_top_confusions(matrix, top_k=5, exclude_background=True):
+            top_confusion_rows.append({"model": DISPLAY_NAMES[run_name], **row})
+
+    assert heatmap is not None
+    colorbar = figure.colorbar(heatmap, ax=axes, fraction=0.03, pad=0.02)
+    colorbar.set_label("Off-diagonal confusion (%)")
+    colorbar.ax.tick_params(labelsize=8)
+    figure.subplots_adjust(left=0.08, right=0.94, bottom=0.23, top=0.9, wspace=0.2)
+    figure.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(figure)
+    return pd.DataFrame(top_confusion_rows)
 
 
 def _copy_image_to_canvas(image: Image.Image, width: int, height: int) -> Image.Image:
@@ -741,7 +1020,16 @@ def build_summary_macros(summary: pd.DataFrame, output_path: Path) -> dict:
     return macro_map
 
 
-def build_report_summary(summary: pd.DataFrame, bootstrap: pd.DataFrame, output_path: Path, qualitative_ids: dict, sam_ids: dict) -> None:
+def build_report_summary(
+    summary: pd.DataFrame,
+    bootstrap: pd.DataFrame,
+    split_sensitivity: pd.DataFrame,
+    lora_rank: pd.DataFrame,
+    top_confusions: pd.DataFrame,
+    output_path: Path,
+    qualitative_ids: dict,
+    sam_ids: dict,
+) -> None:
     ranked = summary.sort_values("mIoU", ascending=False)
     payload = {
         "ranked_runs": ranked[
@@ -767,6 +1055,9 @@ def build_report_summary(summary: pd.DataFrame, bootstrap: pd.DataFrame, output_
                 "bootstrap_num_samples",
             ]
         ].to_dict(orient="records"),
+        "split_sensitivity": split_sensitivity.to_dict(orient="records"),
+        "lora_rank_sweep": lora_rank.to_dict(orient="records"),
+        "top_confusions": top_confusions.to_dict(orient="records"),
         "qualitative_ids": qualitative_ids,
         "sam2_comparison_ids": sam_ids,
     }
@@ -795,23 +1086,60 @@ def main() -> None:
     bundles = build_results_bundle(eval_root, run_root, args.split)
     summary = build_summary_frame(bundles)
     bootstrap = build_bootstrap_frame(summary, bundles)
+    split_bundles = build_named_bundles(
+        [
+            run_name
+            for group in SPLIT_SENSITIVITY_GROUPS
+            for _, run_name in group["alternate_runs"]
+        ],
+        eval_root,
+        run_root,
+        args.split,
+    )
+    lora_bundles = build_named_bundles(
+        [
+            run_name
+            for _, run_name in LORA_RANK_SPECS
+            if run_name not in summary["run_name"].tolist()
+        ],
+        eval_root,
+        run_root,
+        args.split,
+    )
+    split_sensitivity = summarize_split_sensitivity(build_split_sensitivity_frame(summary, split_bundles))
+    lora_rank = build_lora_rank_frame(summary, lora_bundles)
     save_dataframe(summary.sort_values("mIoU", ascending=False), output_root / "official_val_summary.csv")
     save_dataframe(bootstrap, output_root / "bootstrap_stability_summary.csv")
+    save_dataframe(split_sensitivity, output_root / "split_sensitivity_summary.csv")
+    save_dataframe(lora_rank, output_root / "sam2_lora_rank_summary.csv")
 
     make_main_results_table(summary, tables_dir / "main_results.tex")
     make_ablation_table(summary, tables_dir / "ablations.tex")
     make_bootstrap_table(bootstrap, tables_dir / "stability_bootstrap.tex")
+    make_split_sensitivity_table(split_sensitivity, tables_dir / "split_sensitivity.tex")
+    make_lora_rank_table(lora_rank, tables_dir / "sam2_lora_rank.tex")
 
     plot_runtime_vs_accuracy(summary, figures_dir / "runtime_vs_accuracy.pdf")
     plot_per_class_heatmap(bundles, figures_dir / "headline_per_class_heatmap.pdf")
     plot_subset_heatmap(bundles, figures_dir / "subset_heatmap.pdf")
     plot_unet_backbone_trajectories(bundles, figures_dir / "unet_backbone_trajectories.pdf")
+    top_confusions = plot_confusion_matrix_panels(bundles, figures_dir / "confusion_matrix_panels.pdf")
+    save_dataframe(top_confusions, output_root / "top_confusions.csv")
 
     qualitative_ids = build_headline_qualitative_grid(bundles, figures_dir / "headline_qualitative_grid.pdf")
     sam_ids = build_sam2_comparison_grid(bundles, figures_dir / "sam2_frozen_vs_lora.pdf")
     copy_reference_panels(bundles, figures_dir)
     build_summary_macros(summary, output_root / "report_macros.tex")
-    build_report_summary(summary, bootstrap, output_root / "report_summary.json", qualitative_ids, sam_ids)
+    build_report_summary(
+        summary,
+        bootstrap,
+        split_sensitivity,
+        lora_rank,
+        top_confusions,
+        output_root / "report_summary.json",
+        qualitative_ids,
+        sam_ids,
+    )
     print(f"Report assets saved to {output_root}")
 
 
