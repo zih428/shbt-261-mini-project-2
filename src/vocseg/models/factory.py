@@ -7,6 +7,7 @@ from typing import Any
 import torch.nn as nn
 
 from vocseg.models.deeplabv3plus import DeepLabV3Plus
+from vocseg.models.mask2former import Mask2Former
 from vocseg.models.sam2_adapter import SAM2SemanticSegmentor
 from vocseg.models.segformer import SegFormer
 from vocseg.models.unet import UNetResNet
@@ -32,6 +33,12 @@ def build_model(model_cfg: dict[str, Any], num_classes: int) -> nn.Module:
             backbone_name=model_cfg.get("backbone", "segformer_b2"),
             pretrained=model_cfg.get("pretrained", True),
             embedding_dim=int(model_cfg.get("embedding_dim", 256)),
+        )
+    if family == "mask2former":
+        return Mask2Former(
+            num_classes=num_classes,
+            backbone_name=model_cfg.get("backbone", "mask2former_swin_tiny"),
+            pretrained=model_cfg.get("pretrained", True),
         )
     if family == "sam2_semantic":
         return SAM2SemanticSegmentor(

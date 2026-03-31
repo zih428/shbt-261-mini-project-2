@@ -38,8 +38,14 @@ def parse_args() -> argparse.Namespace:
         default="facebook/sam2-hiera-small",
         help="Hugging Face model id for the SAM2 checkpoint.",
     )
+    parser.add_argument(
+        "--mask2former-model-id",
+        default="facebook/mask2former-swin-tiny-ade-semantic",
+        help="Hugging Face model id for the Mask2Former checkpoint.",
+    )
     parser.add_argument("--skip-segformer", action="store_true", help="Do not prefetch SegFormer weights.")
     parser.add_argument("--skip-sam2", action="store_true", help="Do not prefetch SAM2 weights.")
+    parser.add_argument("--skip-mask2former", action="store_true", help="Do not prefetch Mask2Former weights.")
     return parser.parse_args()
 
 
@@ -80,6 +86,23 @@ def _prefetch_sam2(model_id: str) -> None:
     print(f"cached SAM2 weights: {path}")
 
 
+def _prefetch_mask2former(model_id: str) -> None:
+    from huggingface_hub import snapshot_download
+
+    snapshot_path = snapshot_download(
+        repo_id=model_id,
+        allow_patterns=[
+            "config.json",
+            "preprocessor_config.json",
+            "processor_config.json",
+            "model.safetensors",
+            "model.safetensors.index.json",
+            "pytorch_model.bin",
+        ],
+    )
+    print(f"cached Mask2Former weights: {snapshot_path}")
+
+
 def main() -> None:
     args = parse_args()
     for backbone in args.resnets:
@@ -88,6 +111,8 @@ def main() -> None:
         _prefetch_segformer(args.segformer_model_id)
     if not args.skip_sam2:
         _prefetch_sam2(args.sam2_model_id)
+    if not args.skip_mask2former:
+        _prefetch_mask2former(args.mask2former_model_id)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,14 @@
+_base_: ../experiments/mask2former_swin_tiny.yaml
+
+experiment_name: mask2former_swin_tiny_pretrained_mps
+
+data:
+  batch_size: 1
+  eval_batch_size: 1
+  num_workers: 4
+
+runtime:
+  amp: false
+
+training:
+  gradient_accumulation_steps: 4

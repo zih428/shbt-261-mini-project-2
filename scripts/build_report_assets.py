@@ -38,6 +38,7 @@ RUN_ORDER = [
     "unet_resnet34_pretrained_mps",
     "deeplabv3plus_resnet50_pretrained_mps",
     "segformer_b2_pretrained_mps",
+    "mask2former_swin_tiny_pretrained_mps",
     "sam2_hiera_s_frozen_pretrained_mps",
     "unet_resnet18_pretrained_mps",
     "unet_resnet50_pretrained_mps",
@@ -52,6 +53,7 @@ HEADLINE_RUNS = [
     "unet_resnet50_pretrained_mps",
     "deeplabv3plus_resnet50_pretrained_mps",
     "segformer_b2_pretrained_mps",
+    "mask2former_swin_tiny_pretrained_mps",
     "sam2_hiera_s_lora_pretrained_mps",
 ]
 
@@ -84,11 +86,6 @@ LORA_RANK_SPECS = [
     (16, "sam2_hiera_s_lora_r16_pretrained_mps"),
 ]
 
-CONFUSION_MATRIX_RUNS = [
-    "deeplabv3plus_resnet50_pretrained_mps",
-    "segformer_b2_pretrained_mps",
-]
-
 SHORT_CLASS_LABELS = [
     "bg",
     "aero",
@@ -119,6 +116,7 @@ DISPLAY_NAMES = {
     "unet_resnet50_pretrained_mps": "U-Net-R50",
     "deeplabv3plus_resnet50_pretrained_mps": "DeepLabV3+",
     "segformer_b2_pretrained_mps": "SegFormer-B2",
+    "mask2former_swin_tiny_pretrained_mps": "Mask2Former-Tiny",
     "sam2_hiera_s_frozen_pretrained_mps": "SAM2-Frozen",
     "sam2_hiera_s_lora_pretrained_mps": "SAM2-LoRA",
     "unet_loss_cross_entropy_pretrained_mps": "U-Net CE",
@@ -139,6 +137,7 @@ LONG_NAMES = {
     "unet_resnet50_pretrained_mps": "U-Net with ResNet-50 encoder",
     "deeplabv3plus_resnet50_pretrained_mps": "DeepLabV3+ with ResNet-50 backbone",
     "segformer_b2_pretrained_mps": "SegFormer-B2",
+    "mask2former_swin_tiny_pretrained_mps": "Mask2Former with Swin-Tiny backbone",
     "sam2_hiera_s_frozen_pretrained_mps": "SAM2 semantic adapter (frozen encoder)",
     "sam2_hiera_s_lora_pretrained_mps": "SAM2 semantic adapter with LoRA",
     "unet_loss_cross_entropy_pretrained_mps": "U-Net-ResNet34 with cross-entropy loss",
@@ -163,6 +162,7 @@ FAMILY_NAMES = {
     "unet_aug_strong_pretrained_mps": "U-Net",
     "deeplabv3plus_resnet50_pretrained_mps": "DeepLabV3+",
     "segformer_b2_pretrained_mps": "SegFormer",
+    "mask2former_swin_tiny_pretrained_mps": "Mask2Former",
     "segformer_b2_split_seed7_pretrained_mps": "SegFormer",
     "segformer_b2_split_seed19_pretrained_mps": "SegFormer",
     "sam2_hiera_s_frozen_pretrained_mps": "SAM2",
@@ -177,6 +177,7 @@ FAMILY_COLORS = {
     "U-Net": "#4c78a8",
     "DeepLabV3+": "#f58518",
     "SegFormer": "#54a24b",
+    "Mask2Former": "#72b7b2",
     "SAM2": "#e45756",
 }
 
@@ -321,6 +322,7 @@ def read_experiment_bundle(run_name: str, eval_root: Path, run_root: Path, split
         "mean_dice": float(metrics["mean_dice"]),
         "hd95": float(metrics["hd95"]),
         "pixel_accuracy": float(metrics["pixel_accuracy"]),
+        "mean_class_accuracy": float(metrics["mean_class_accuracy"]),
         "images_per_second": float(metrics["images_per_second"]),
         "inference_time_seconds": float(metrics["inference_time_seconds"]),
         "training_time_seconds": float(train_metrics["training_time_seconds"]),
@@ -691,6 +693,20 @@ def make_lora_rank_table(frame: pd.DataFrame, output_path: Path) -> None:
     write_text(output_path, "\n".join(lines) + "\n")
 
 
+def select_confusion_run_names(summary: pd.DataFrame) -> list[str]:
+    candidates = summary[summary["family"].isin(["DeepLabV3+", "SegFormer", "Mask2Former"])]
+    if len(candidates) < 2:
+        candidates = summary[summary["family"] != "SAM2"]
+    return candidates.sort_values("mIoU", ascending=False)["run_name"].head(2).tolist()
+
+
+def select_reference_panel_run(summary: pd.DataFrame) -> str:
+    non_sam = summary[summary["family"] != "SAM2"].sort_values("mIoU", ascending=False)
+    if not non_sam.empty:
+        return str(non_sam.iloc[0]["run_name"])
+    return str(summary.sort_values("mIoU", ascending=False).iloc[0]["run_name"])
+
+
 def plot_runtime_vs_accuracy(summary: pd.DataFrame, output_path: Path) -> None:
     figure, axis = plt.subplots(figsize=(7.8, 5.1))
     for family, frame in summary.groupby("family"):
@@ -712,25 +728,25 @@ def plot_runtime_vs_accuracy(summary: pd.DataFrame, output_path: Path) -> None:
         center = axis.transData.transform((row.training_hours, metric_pct(row.mIoU)))
         point_boxes[row.run_name] = Bbox.from_extents(center[0] - 7.0, center[1] - 7.0, center[0] + 7.0, center[1] + 7.0)
 
-    candidate_offsets = [
-        (8, 8),
-        (8, 20),
-        (8, -16),
-        (-12, 8),
-        (-12, 20),
-        (-12, -16),
-        (20, 0),
-        (-40, 0),
-        (20, 18),
-        (-48, 18),
-        (20, -18),
-        (-48, -18),
-    ]
+    candidate_offsets: list[tuple[int, int]] = []
+    for radius in (10, 16, 24, 34, 46, 58):
+        candidate_offsets.extend(
+            [
+                (radius, 0),
+                (-radius, 0),
+                (0, radius),
+                (0, -radius),
+                (radius, radius),
+                (-radius, radius),
+                (radius, -radius),
+                (-radius, -radius),
+            ]
+        )
     occupied_boxes: list[Bbox] = []
     rows = list(summary.sort_values(["training_hours", "mIoU"]).itertuples())
     for row in rows:
         anchor = (row.training_hours, metric_pct(row.mIoU))
-        last_annotation = None
+        best_candidate: tuple[tuple[int, int], Bbox | None, float] | None = None
         for x_offset, y_offset in candidate_offsets:
             arrowprops = None
             if abs(x_offset) > 14 or abs(y_offset) > 14:
@@ -747,29 +763,42 @@ def plot_runtime_vs_accuracy(summary: pd.DataFrame, output_path: Path) -> None:
             )
             figure.canvas.draw()
             bbox = annotation.get_window_extent(renderer=renderer).expanded(1.03, 1.18)
-            overlaps_label = any(bbox.overlaps(other) for other in occupied_boxes)
-            overlaps_point = any(
-                bbox.overlaps(point_box)
+            overlaps_label = sum(1 for other in occupied_boxes if bbox.overlaps(other))
+            overlaps_point = sum(
+                1
                 for run_name, point_box in point_boxes.items()
-                if run_name != row.run_name
+                if run_name != row.run_name and bbox.overlaps(point_box)
             )
-            if not overlaps_label and not overlaps_point:
-                occupied_boxes.append(bbox)
-                last_annotation = annotation
-                break
+            figure_bbox = figure.bbox
+            out_of_bounds = float(
+                bbox.x0 < figure_bbox.x0 + 6
+                or bbox.y0 < figure_bbox.y0 + 6
+                or bbox.x1 > figure_bbox.x1 - 6
+                or bbox.y1 > figure_bbox.y1 - 6
+            )
+            score = 1000.0 * out_of_bounds + 100.0 * overlaps_label + 50.0 * overlaps_point + 0.02 * (
+                abs(x_offset) + abs(y_offset)
+            )
+            if best_candidate is None or score < best_candidate[2]:
+                best_candidate = ((x_offset, y_offset), bbox, score)
             annotation.remove()
-        if last_annotation is None:
-            fallback_offset = candidate_offsets[-1]
-            axis.annotate(
-                row.display_name,
-                anchor,
-                textcoords="offset points",
-                xytext=fallback_offset,
-                fontsize=8,
-                bbox={"boxstyle": "round,pad=0.14", "facecolor": "white", "alpha": 0.88, "edgecolor": "none"},
-                arrowprops={"arrowstyle": "-", "linewidth": 0.5, "color": "#555555", "shrinkA": 0, "shrinkB": 4},
-                zorder=4,
-            )
+        assert best_candidate is not None
+        best_offset = best_candidate[0]
+        best_arrowprops = None
+        if abs(best_offset[0]) > 14 or abs(best_offset[1]) > 14:
+            best_arrowprops = {"arrowstyle": "-", "linewidth": 0.5, "color": "#555555", "shrinkA": 0, "shrinkB": 4}
+        final_annotation = axis.annotate(
+            row.display_name,
+            anchor,
+            textcoords="offset points",
+            xytext=best_offset,
+            fontsize=7.5,
+            bbox={"boxstyle": "round,pad=0.14", "facecolor": "white", "alpha": 0.9, "edgecolor": "none"},
+            arrowprops=best_arrowprops,
+            zorder=4,
+        )
+        figure.canvas.draw()
+        occupied_boxes.append(final_annotation.get_window_extent(renderer=renderer).expanded(1.02, 1.15))
 
     axis.set_xlabel("Training Time (hours)")
     axis.set_ylabel("Official val mIoU (%)")
@@ -782,6 +811,16 @@ def plot_runtime_vs_accuracy(summary: pd.DataFrame, output_path: Path) -> None:
 
 
 def plot_per_class_heatmap(bundles: dict[str, dict], output_path: Path) -> None:
+    plot_per_class_metric_heatmap(bundles, output_path, metric="iou", title="Per-Class IoU Heatmap for Headline Models", colorbar_label="IoU (%)")
+
+
+def plot_per_class_metric_heatmap(
+    bundles: dict[str, dict],
+    output_path: Path,
+    metric: str,
+    title: str,
+    colorbar_label: str,
+) -> None:
     matrices = []
     labels = []
     class_labels: list[str] | None = None
@@ -790,19 +829,19 @@ def plot_per_class_heatmap(bundles: dict[str, dict], output_path: Path) -> None:
         per_class = per_class[per_class["class_id"] != 0]
         if class_labels is None:
             class_labels = per_class["class_name"].tolist()
-        matrices.append(metric_pct(per_class["iou"].to_numpy()))
+        matrices.append(metric_pct(per_class[metric].to_numpy()))
         labels.append(DISPLAY_NAMES[run_name])
 
     matrix = np.vstack(matrices)
-    figure, axis = plt.subplots(figsize=(11.2, 3.6))
+    figure, axis = plt.subplots(figsize=(11.6, 1.0 + 0.6 * len(labels)))
     heatmap = axis.imshow(matrix, cmap="YlGnBu", aspect="auto", vmin=0.0, vmax=95.0)
     axis.set_yticks(np.arange(len(labels)))
     axis.set_yticklabels(labels)
     axis.set_xticks(np.arange(len(class_labels or [])))
     axis.set_xticklabels(class_labels or [], rotation=45, ha="right")
-    axis.set_title("Per-Class IoU Heatmap for Headline Models")
+    axis.set_title(title)
     colorbar = figure.colorbar(heatmap, ax=axis, fraction=0.025, pad=0.02)
-    colorbar.set_label("IoU (%)")
+    colorbar.set_label(colorbar_label)
     figure.tight_layout()
     figure.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(figure)
@@ -813,6 +852,7 @@ def plot_subset_heatmap(bundles: dict[str, dict], output_path: Path) -> None:
         "unet_resnet50_pretrained_mps",
         "deeplabv3plus_resnet50_pretrained_mps",
         "segformer_b2_pretrained_mps",
+        "mask2former_swin_tiny_pretrained_mps",
         "sam2_hiera_s_frozen_pretrained_mps",
         "sam2_hiera_s_lora_pretrained_mps",
     ]
@@ -870,15 +910,19 @@ def plot_unet_backbone_trajectories(bundles: dict[str, dict], output_path: Path)
     plt.close(figure)
 
 
-def plot_confusion_matrix_panels(bundles: dict[str, dict], output_path: Path) -> pd.DataFrame:
+def plot_confusion_matrix_panels(
+    bundles: dict[str, dict],
+    run_names: list[str],
+    output_path: Path,
+) -> pd.DataFrame:
     labels = SHORT_CLASS_LABELS[1:]
-    figure, axes = plt.subplots(1, len(CONFUSION_MATRIX_RUNS), figsize=(12.6, 5.8))
-    if len(CONFUSION_MATRIX_RUNS) == 1:
+    figure, axes = plt.subplots(1, len(run_names), figsize=(6.2 * len(run_names), 5.8))
+    if len(run_names) == 1:
         axes = [axes]
 
     top_confusion_rows: list[dict[str, float | str]] = []
     heatmap = None
-    for axis, run_name in zip(axes, CONFUSION_MATRIX_RUNS):
+    for axis, run_name in zip(axes, run_names):
         matrix = aggregate_confusion_matrix(bundles[run_name])
         normalized = normalize_confusion_rows(matrix, exclude_background=True, off_diagonal_only=True)
         heatmap = axis.imshow(normalized * 100.0, cmap="magma", aspect="auto", vmin=0.0, vmax=100.0)
@@ -958,7 +1002,7 @@ def build_headline_qualitative_grid(bundles: dict[str, dict], output_path: Path)
 
     columns = ["Input", "Ground Truth"] + [DISPLAY_NAMES[run_name] for run_name in HEADLINE_RUNS]
     reference = bundles[HEADLINE_RUNS[0]]["per_image"].set_index("image_id")
-    figure, axes = plt.subplots(len(image_ids), len(columns), figsize=(12.5, 2.85 * len(image_ids)))
+    figure, axes = plt.subplots(len(image_ids), len(columns), figsize=(1.95 * len(columns), 2.85 * len(image_ids)))
     if len(image_ids) == 1:
         axes = np.expand_dims(axes, axis=0)
 
@@ -1043,6 +1087,9 @@ def build_summary_macros(summary: pd.DataFrame, output_path: Path) -> dict:
     ranked = summary.sort_values("mIoU", ascending=False).reset_index(drop=True)
     top = ranked.iloc[0]
     runner_up = ranked.iloc[1]
+    best_hd95 = summary.sort_values("hd95", ascending=True).iloc[0]
+    reference_panel_run = select_reference_panel_run(summary)
+    confusion_runs = select_confusion_run_names(summary)
     segformer = summary[summary["run_name"] == "segformer_b2_pretrained_mps"].iloc[0]
     deeplab = summary[summary["run_name"] == "deeplabv3plus_resnet50_pretrained_mps"].iloc[0]
     sam2_frozen = summary[summary["run_name"] == "sam2_hiera_s_frozen_pretrained_mps"].iloc[0]
@@ -1051,12 +1098,25 @@ def build_summary_macros(summary: pd.DataFrame, output_path: Path) -> dict:
     unet50 = summary[summary["run_name"] == "unet_resnet50_pretrained_mps"].iloc[0]
     strong_aug = summary[summary["run_name"] == "unet_aug_strong_pretrained_mps"].iloc[0]
     no_aug = summary[summary["run_name"] == "unet_aug_none_pretrained_mps"].iloc[0]
+    completed_runs = {
+        *RUN_ORDER,
+        *(run_name for group in SPLIT_SENSITIVITY_GROUPS for _, run_name in group["alternate_runs"]),
+        *(run_name for _, run_name in LORA_RANK_SPECS),
+    }
 
     macro_map = {
+        "HeadlineModelCount": str(len(HEADLINE_RUNS)),
+        "CoreExperimentCount": str(len(RUN_ORDER)),
+        "CompletedTrainRunCount": str(len(completed_runs)),
         "TopModelName": top["display_name"],
         "TopModelMiou": format_percent(top["mIoU"]),
         "RunnerUpName": runner_up["display_name"],
         "RunnerUpMiou": format_percent(runner_up["mIoU"]),
+        "BestHdModelName": best_hd95["display_name"],
+        "BestHdValue": format_float(best_hd95["hd95"]),
+        "ReferencePanelModelName": DISPLAY_NAMES[reference_panel_run],
+        "ConfusionModelOne": DISPLAY_NAMES[confusion_runs[0]],
+        "ConfusionModelTwo": DISPLAY_NAMES[confusion_runs[1]],
         "SegformerMiou": format_percent(segformer["mIoU"]),
         "SegformerVsDeeplabDelta": f"{metric_pct(segformer['mIoU'] - deeplab['mIoU']):.1f}",
         "SamLoRAGain": f"{metric_pct(sam2_lora['mIoU'] - sam2_frozen['mIoU']):.1f}",
@@ -1098,6 +1158,7 @@ def build_report_summary(
                 "mIoU",
                 "mean_dice",
                 "pixel_accuracy",
+                "mean_class_accuracy",
                 "hd95",
                 "training_hours",
             ]
@@ -1122,10 +1183,10 @@ def build_report_summary(
     save_json(output_path, payload)
 
 
-def copy_reference_panels(bundles: dict[str, dict], figures_dir: Path) -> None:
-    segformer_dir = bundles["segformer_b2_pretrained_mps"]["eval_dir"]
-    shutil.copy2(segformer_dir / "best_worst_panel.png", figures_dir / "segformer_best_worst_panel.png")
-    shutil.copy2(segformer_dir / "person_panel.png", figures_dir / "segformer_person_panel.png")
+def copy_reference_panels(bundles: dict[str, dict], summary: pd.DataFrame, figures_dir: Path) -> None:
+    reference_dir = bundles[select_reference_panel_run(summary)]["eval_dir"]
+    shutil.copy2(reference_dir / "best_worst_panel.png", figures_dir / "segformer_best_worst_panel.png")
+    shutil.copy2(reference_dir / "person_panel.png", figures_dir / "segformer_person_panel.png")
 
 
 def main() -> None:
@@ -1166,6 +1227,7 @@ def main() -> None:
     )
     split_sensitivity = summarize_split_sensitivity(build_split_sensitivity_frame(summary, split_bundles))
     lora_rank = build_lora_rank_frame(summary, lora_bundles)
+    confusion_run_names = select_confusion_run_names(summary)
     save_dataframe(summary.sort_values("mIoU", ascending=False), output_root / "official_val_summary.csv")
     save_dataframe(bootstrap, output_root / "bootstrap_stability_summary.csv")
     save_dataframe(split_sensitivity, output_root / "split_sensitivity_summary.csv")
@@ -1179,14 +1241,21 @@ def main() -> None:
 
     plot_runtime_vs_accuracy(summary, figures_dir / "runtime_vs_accuracy.pdf")
     plot_per_class_heatmap(bundles, figures_dir / "headline_per_class_heatmap.pdf")
+    plot_per_class_metric_heatmap(
+        bundles,
+        figures_dir / "headline_per_class_accuracy_heatmap.pdf",
+        metric="accuracy",
+        title="Per-Class Accuracy Heatmap for Headline Models",
+        colorbar_label="Accuracy (%)",
+    )
     plot_subset_heatmap(bundles, figures_dir / "subset_heatmap.pdf")
     plot_unet_backbone_trajectories(bundles, figures_dir / "unet_backbone_trajectories.pdf")
-    top_confusions = plot_confusion_matrix_panels(bundles, figures_dir / "confusion_matrix_panels.pdf")
+    top_confusions = plot_confusion_matrix_panels(bundles, confusion_run_names, figures_dir / "confusion_matrix_panels.pdf")
     save_dataframe(top_confusions, output_root / "top_confusions.csv")
 
     qualitative_ids = build_headline_qualitative_grid(bundles, figures_dir / "headline_qualitative_grid.pdf")
     sam_ids = build_sam2_comparison_grid(bundles, figures_dir / "sam2_frozen_vs_lora.pdf")
-    copy_reference_panels(bundles, figures_dir)
+    copy_reference_panels(bundles, summary, figures_dir)
     build_summary_macros(summary, output_root / "report_macros.tex")
     build_report_summary(
         summary,

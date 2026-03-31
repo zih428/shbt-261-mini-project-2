@@ -8,6 +8,7 @@ This repository implements a configuration-driven experiment pipeline for the Pa
   - `U-Net`
   - `DeepLabV3+`
   - `SegFormer`
+  - `Mask2Former`
   - `SAM2` semantic adaptation
 - ablation studies, qualitative analysis, and aggregated reporting assets
 
@@ -23,7 +24,7 @@ uv sync --group dev --extra models --extra sam2
 
 ## Model Specs
 
-The repo currently supports four headline model tracks.
+The repo currently supports five headline model tracks.
 
 ### U-Net
 
@@ -58,6 +59,17 @@ The repo currently supports four headline model tracks.
 - Output classes: `21`
 - Optimizer default: `AdamW`, `lr=2e-4`
 
+### Mask2Former Swin-Tiny
+
+- Config: `configs/experiments/mask2former_swin_tiny.yaml`
+- Local MPS config: `configs/local_runs/mask2former_swin_tiny_mps.yaml`
+- Family: `Mask2Former`
+- Backbone/model id: `facebook/mask2former-swin-tiny-ade-semantic`
+- Pretraining: ADE20K semantic-segmentation checkpoint with the classifier reinitialized to `21` VOC classes
+- Decoder: Mask2Former pixel decoder + transformer query decoder, aggregated into semantic logits for the common training/evaluation pipeline
+- Output classes: `21`
+- Optimizer default: `AdamW`, `lr=6e-5`
+
 ### SAM2 Hiera-S Semantic Adapter
 
 - Config: `configs/experiments/sam2_hiera_s_frozen.yaml`
@@ -83,6 +95,7 @@ This caches:
 
 - torchvision `ResNet-18`, `ResNet-34`, and `ResNet-50` checkpoints under `~/.cache/torch/hub/checkpoints`
 - `SegFormer-B2` weights from Hugging Face
+- `Mask2Former Swin-Tiny` weights from Hugging Face
 - `SAM2 Hiera-S` weights from Hugging Face
 
 ## Expected Dataset Layout
@@ -128,6 +141,7 @@ uv run python scripts/run_suite.py \
     configs/local_runs/unet_resnet34_mps.yaml \
     configs/local_runs/deeplabv3plus_resnet50_mps.yaml \
     configs/local_runs/segformer_b2_mps.yaml \
+    configs/local_runs/mask2former_swin_tiny_mps.yaml \
     configs/local_runs/sam2_hiera_s_frozen_mps.yaml \
   --data-root /path/to/VOCtrainval_06-Nov-2007 \
   --artifact-root ./artifacts
@@ -161,6 +175,7 @@ uv run python scripts/aggregate_results.py \
     ./artifacts/evals/unet_resnet34_pretrained_mps_official_val \
     ./artifacts/evals/deeplabv3plus_resnet50_pretrained_mps_official_val \
     ./artifacts/evals/segformer_b2_pretrained_mps_official_val \
+    ./artifacts/evals/mask2former_swin_tiny_pretrained_mps_official_val \
     ./artifacts/evals/sam2_hiera_s_frozen_pretrained_mps_official_val \
   --output-dir ./artifacts/aggregate
 ```
@@ -231,5 +246,6 @@ artifacts/suites/<suite_name>/progress.json
 ## Notes
 
 - `SegFormer` requires `transformers`.
+- `Mask2Former` requires `transformers`.
 - `SAM2` can load from either an explicit local checkpoint/config pair or a Hugging Face model id.
 - The code preserves the Pascal VOC `255` void label as `ignore_index=255`.

@@ -1,0 +1,12 @@
+_base_: ../base/base.yaml
+
+experiment_name: mask2former_swin_tiny
+
+model:
+  family: mask2former
+  backbone: mask2former_swin_tiny
+  pretrained: true
+
+optimizer:
+  lr: 0.00006
+  weight_decay: 0.0001
