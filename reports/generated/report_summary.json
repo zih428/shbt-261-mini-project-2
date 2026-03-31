@@ -111,6 +111,44 @@
       "training_hours": 0.4905474296063888
     }
   ],
+  "bootstrap_stability": [
+    {
+      "run_name": "segformer_b2_pretrained_mps",
+      "display_name": "SegFormer-B2",
+      "mIoU": 0.5601609975851773,
+      "bootstrap_mean_mIoU": 0.5487295882226537,
+      "bootstrap_ci_low_mIoU": 0.4930162862670541,
+      "bootstrap_ci_high_mIoU": 0.600351359205688,
+      "bootstrap_num_samples": 2000
+    },
+    {
+      "run_name": "deeplabv3plus_resnet50_pretrained_mps",
+      "display_name": "DeepLabV3+",
+      "mIoU": 0.46437739688386276,
+      "bootstrap_mean_mIoU": 0.45702340571639705,
+      "bootstrap_ci_low_mIoU": 0.4138582703884721,
+      "bootstrap_ci_high_mIoU": 0.49952009834052113,
+      "bootstrap_num_samples": 2000
+    },
+    {
+      "run_name": "sam2_hiera_s_lora_pretrained_mps",
+      "display_name": "SAM2-LoRA",
+      "mIoU": 0.4415036325127805,
+      "bootstrap_mean_mIoU": 0.4345405868627454,
+      "bootstrap_ci_low_mIoU": 0.38123627986448516,
+      "bootstrap_ci_high_mIoU": 0.49114619529249043,
+      "bootstrap_num_samples": 2000
+    },
+    {
+      "run_name": "unet_resnet50_pretrained_mps",
+      "display_name": "U-Net-R50",
+      "mIoU": 0.34869119245513136,
+      "bootstrap_mean_mIoU": 0.34267322467467504,
+      "bootstrap_ci_low_mIoU": 0.30508217612321986,
+      "bootstrap_ci_high_mIoU": 0.3804674467060271,
+      "bootstrap_num_samples": 2000
+    }
+  ],
   "qualitative_ids": {
     "image_ids": [
       "5212",

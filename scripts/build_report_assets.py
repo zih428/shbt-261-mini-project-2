@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import shutil
+import sys
 import textwrap
 from pathlib import Path
 
@@ -21,9 +22,16 @@ from PIL import Image
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 DEFAULT_EVAL_ROOT = PROJECT_ROOT / "artifacts" / "evals"
 DEFAULT_RUN_ROOT = PROJECT_ROOT / "artifacts" / "runs"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "reports" / "generated"
+
+from vocseg.constants import DEFAULT_CLASS_COLORS, IGNORE_INDEX, VOC_CLASSES
+from vocseg.evaluation.metrics import confusion_matrix_from_arrays
 
 RUN_ORDER = [
     "unet_resnet34_pretrained_mps",
@@ -40,11 +48,15 @@ RUN_ORDER = [
 ]
 
 HEADLINE_RUNS = [
-    "unet_resnet34_pretrained_mps",
+    "unet_resnet50_pretrained_mps",
     "deeplabv3plus_resnet50_pretrained_mps",
     "segformer_b2_pretrained_mps",
     "sam2_hiera_s_lora_pretrained_mps",
 ]
+
+BOOTSTRAP_RUNS = HEADLINE_RUNS
+BOOTSTRAP_SAMPLES = 2000
+BOOTSTRAP_SEED = 42
 
 DISPLAY_NAMES = {
     "unet_resnet18_pretrained_mps": "U-Net-R18",
@@ -148,6 +160,9 @@ SUBSET_LABELS = {
     "crowded_scene": "Crowded",
     "high_boundary_complexity": "Boundary",
 }
+
+COLOR_TO_CLASS_ID = {tuple(color): class_id for class_id, color in enumerate(DEFAULT_CLASS_COLORS)}
+COLOR_TO_CLASS_ID[(255, 255, 255)] = IGNORE_INDEX
 
 
 def parse_args() -> argparse.Namespace:
@@ -291,6 +306,72 @@ def format_float(value: float, digits: int = 1) -> str:
     return f"{float(value):.{digits}f}"
 
 
+def decode_color_mask(path: str | Path) -> np.ndarray:
+    rgb = np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
+    mask = np.full(rgb.shape[:2], IGNORE_INDEX, dtype=np.int64)
+    flat_rgb = rgb.reshape(-1, 3)
+    flat_mask = mask.reshape(-1)
+    unique_colors = np.unique(flat_rgb, axis=0)
+    for color in unique_colors:
+        key = tuple(int(channel) for channel in color)
+        if key not in COLOR_TO_CLASS_ID:
+            raise ValueError(f"Unknown color {key} in mask: {path}")
+        flat_mask[np.all(flat_rgb == color, axis=1)] = COLOR_TO_CLASS_ID[key]
+    return mask
+
+
+def build_image_confusions(bundle: dict) -> np.ndarray:
+    confusions: list[np.ndarray] = []
+    for row in bundle["per_image"].itertuples():
+        target = decode_color_mask(row.ground_truth_path)
+        prediction = decode_color_mask(row.prediction_path)
+        confusion = confusion_matrix_from_arrays(prediction, target, num_classes=len(VOC_CLASSES), ignore_index=IGNORE_INDEX)
+        confusions.append(confusion)
+    if not confusions:
+        raise ValueError(f"No per-image evaluation rows found for {bundle['summary']['run_name']}")
+    return np.stack(confusions, axis=0)
+
+
+def bootstrap_miou_from_confusions(
+    confusions: np.ndarray,
+    num_bootstrap: int = BOOTSTRAP_SAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> dict[str, float]:
+    num_images = int(confusions.shape[0])
+    probabilities = np.full(num_images, 1.0 / float(num_images), dtype=np.float64)
+    rng = np.random.default_rng(seed)
+    weights = rng.multinomial(num_images, probabilities, size=num_bootstrap)
+    aggregated = np.tensordot(weights, confusions, axes=(1, 0)).astype(np.float64)
+
+    true_positive = np.diagonal(aggregated, axis1=1, axis2=2)
+    gt_pixels = aggregated.sum(axis=2)
+    pred_pixels = aggregated.sum(axis=1)
+    union = gt_pixels + pred_pixels - true_positive
+    with np.errstate(divide="ignore", invalid="ignore"):
+        iou = np.divide(true_positive, union, out=np.full_like(true_positive, np.nan), where=union > 0)
+    miou_samples = np.nanmean(iou, axis=1)
+
+    return {
+        "bootstrap_mean_mIoU": float(np.mean(miou_samples)),
+        "bootstrap_std_mIoU": float(np.std(miou_samples, ddof=1)),
+        "bootstrap_ci_low_mIoU": float(np.percentile(miou_samples, 2.5)),
+        "bootstrap_ci_high_mIoU": float(np.percentile(miou_samples, 97.5)),
+        "bootstrap_num_samples": int(num_bootstrap),
+        "bootstrap_num_images": num_images,
+    }
+
+
+def build_bootstrap_frame(summary: pd.DataFrame, bundles: dict[str, dict]) -> pd.DataFrame:
+    indexed_summary = summary.set_index("run_name")
+    rows = []
+    for run_name in BOOTSTRAP_RUNS:
+        row = indexed_summary.loc[run_name].to_dict()
+        row["run_name"] = run_name
+        row.update(bootstrap_miou_from_confusions(build_image_confusions(bundles[run_name])))
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values("mIoU", ascending=False).reset_index(drop=True)
+
+
 def make_main_results_table(summary: pd.DataFrame, output_path: Path) -> None:
     table_df = summary[summary["run_name"].isin(HEADLINE_RUNS)].copy().sort_values("mIoU", ascending=False)
     best = {
@@ -344,6 +425,23 @@ def make_ablation_table(summary: pd.DataFrame, output_path: Path) -> None:
         lines.append(r"\midrule")
     lines[-1] = r"\bottomrule"
     lines.append(r"\end{tabular}")
+    write_text(output_path, "\n".join(lines) + "\n")
+
+
+def make_bootstrap_table(frame: pd.DataFrame, output_path: Path) -> None:
+    lines = [
+        r"\begin{tabular}{lrrr}",
+        r"\toprule",
+        r"Model & Official mIoU & Bootstrap Mean & 95\% CI \\",
+        r"\midrule",
+    ]
+    for row in frame.itertuples():
+        ci_text = f"[{format_percent(row.bootstrap_ci_low_mIoU)}, {format_percent(row.bootstrap_ci_high_mIoU)}]"
+        lines.append(
+            f"{latex_escape(row.display_name)} & {format_percent(row.mIoU)} & "
+            f"{format_percent(row.bootstrap_mean_mIoU)} & {ci_text} \\\\"
+        )
+    lines.extend([r"\bottomrule", r"\end{tabular}"])
     write_text(output_path, "\n".join(lines) + "\n")
 
 
@@ -409,7 +507,7 @@ def plot_per_class_heatmap(bundles: dict[str, dict], output_path: Path) -> None:
 
 def plot_subset_heatmap(bundles: dict[str, dict], output_path: Path) -> None:
     selected_runs = [
-        "unet_resnet34_pretrained_mps",
+        "unet_resnet50_pretrained_mps",
         "deeplabv3plus_resnet50_pretrained_mps",
         "segformer_b2_pretrained_mps",
         "sam2_hiera_s_frozen_pretrained_mps",
@@ -643,7 +741,7 @@ def build_summary_macros(summary: pd.DataFrame, output_path: Path) -> dict:
     return macro_map
 
 
-def build_report_summary(summary: pd.DataFrame, bundles: dict[str, dict], output_path: Path, qualitative_ids: dict, sam_ids: dict) -> None:
+def build_report_summary(summary: pd.DataFrame, bootstrap: pd.DataFrame, output_path: Path, qualitative_ids: dict, sam_ids: dict) -> None:
     ranked = summary.sort_values("mIoU", ascending=False)
     payload = {
         "ranked_runs": ranked[
@@ -656,6 +754,17 @@ def build_report_summary(summary: pd.DataFrame, bundles: dict[str, dict], output
                 "pixel_accuracy",
                 "hd95",
                 "training_hours",
+            ]
+        ].to_dict(orient="records"),
+        "bootstrap_stability": bootstrap[
+            [
+                "run_name",
+                "display_name",
+                "mIoU",
+                "bootstrap_mean_mIoU",
+                "bootstrap_ci_low_mIoU",
+                "bootstrap_ci_high_mIoU",
+                "bootstrap_num_samples",
             ]
         ].to_dict(orient="records"),
         "qualitative_ids": qualitative_ids,
@@ -685,10 +794,13 @@ def main() -> None:
 
     bundles = build_results_bundle(eval_root, run_root, args.split)
     summary = build_summary_frame(bundles)
+    bootstrap = build_bootstrap_frame(summary, bundles)
     save_dataframe(summary.sort_values("mIoU", ascending=False), output_root / "official_val_summary.csv")
+    save_dataframe(bootstrap, output_root / "bootstrap_stability_summary.csv")
 
     make_main_results_table(summary, tables_dir / "main_results.tex")
     make_ablation_table(summary, tables_dir / "ablations.tex")
+    make_bootstrap_table(bootstrap, tables_dir / "stability_bootstrap.tex")
 
     plot_runtime_vs_accuracy(summary, figures_dir / "runtime_vs_accuracy.pdf")
     plot_per_class_heatmap(bundles, figures_dir / "headline_per_class_heatmap.pdf")
@@ -699,7 +811,7 @@ def main() -> None:
     sam_ids = build_sam2_comparison_grid(bundles, figures_dir / "sam2_frozen_vs_lora.pdf")
     copy_reference_panels(bundles, figures_dir)
     build_summary_macros(summary, output_root / "report_macros.tex")
-    build_report_summary(summary, bundles, output_root / "report_summary.json", qualitative_ids, sam_ids)
+    build_report_summary(summary, bootstrap, output_root / "report_summary.json", qualitative_ids, sam_ids)
     print(f"Report assets saved to {output_root}")
 
 
