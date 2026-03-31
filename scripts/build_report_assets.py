@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from PIL import Image
+from matplotlib.transforms import Bbox
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -691,7 +692,7 @@ def make_lora_rank_table(frame: pd.DataFrame, output_path: Path) -> None:
 
 
 def plot_runtime_vs_accuracy(summary: pd.DataFrame, output_path: Path) -> None:
-    figure, axis = plt.subplots(figsize=(7.2, 4.8))
+    figure, axis = plt.subplots(figsize=(7.8, 5.1))
     for family, frame in summary.groupby("family"):
         axis.scatter(
             frame["training_hours"],
@@ -704,14 +705,71 @@ def plot_runtime_vs_accuracy(summary: pd.DataFrame, output_path: Path) -> None:
             linewidth=0.4,
         )
 
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    point_boxes: dict[str, Bbox] = {}
     for row in summary.itertuples():
-        axis.annotate(
-            row.display_name,
-            (row.training_hours, metric_pct(row.mIoU)),
-            textcoords="offset points",
-            xytext=(5, 4),
-            fontsize=8,
-        )
+        center = axis.transData.transform((row.training_hours, metric_pct(row.mIoU)))
+        point_boxes[row.run_name] = Bbox.from_extents(center[0] - 7.0, center[1] - 7.0, center[0] + 7.0, center[1] + 7.0)
+
+    candidate_offsets = [
+        (8, 8),
+        (8, 20),
+        (8, -16),
+        (-12, 8),
+        (-12, 20),
+        (-12, -16),
+        (20, 0),
+        (-40, 0),
+        (20, 18),
+        (-48, 18),
+        (20, -18),
+        (-48, -18),
+    ]
+    occupied_boxes: list[Bbox] = []
+    rows = list(summary.sort_values(["training_hours", "mIoU"]).itertuples())
+    for row in rows:
+        anchor = (row.training_hours, metric_pct(row.mIoU))
+        last_annotation = None
+        for x_offset, y_offset in candidate_offsets:
+            arrowprops = None
+            if abs(x_offset) > 14 or abs(y_offset) > 14:
+                arrowprops = {"arrowstyle": "-", "linewidth": 0.5, "color": "#555555", "shrinkA": 0, "shrinkB": 4}
+            annotation = axis.annotate(
+                row.display_name,
+                anchor,
+                textcoords="offset points",
+                xytext=(x_offset, y_offset),
+                fontsize=8,
+                bbox={"boxstyle": "round,pad=0.14", "facecolor": "white", "alpha": 0.88, "edgecolor": "none"},
+                arrowprops=arrowprops,
+                zorder=4,
+            )
+            figure.canvas.draw()
+            bbox = annotation.get_window_extent(renderer=renderer).expanded(1.03, 1.18)
+            overlaps_label = any(bbox.overlaps(other) for other in occupied_boxes)
+            overlaps_point = any(
+                bbox.overlaps(point_box)
+                for run_name, point_box in point_boxes.items()
+                if run_name != row.run_name
+            )
+            if not overlaps_label and not overlaps_point:
+                occupied_boxes.append(bbox)
+                last_annotation = annotation
+                break
+            annotation.remove()
+        if last_annotation is None:
+            fallback_offset = candidate_offsets[-1]
+            axis.annotate(
+                row.display_name,
+                anchor,
+                textcoords="offset points",
+                xytext=fallback_offset,
+                fontsize=8,
+                bbox={"boxstyle": "round,pad=0.14", "facecolor": "white", "alpha": 0.88, "edgecolor": "none"},
+                arrowprops={"arrowstyle": "-", "linewidth": 0.5, "color": "#555555", "shrinkA": 0, "shrinkB": 4},
+                zorder=4,
+            )
 
     axis.set_xlabel("Training Time (hours)")
     axis.set_ylabel("Official val mIoU (%)")
