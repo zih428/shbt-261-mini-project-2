@@ -33,6 +33,10 @@
 
 \maketitle
 
+\begin{center}
+\small\textbf{Code Repository:} \href{https://github.com/zih428/shbt-261-mini-project-2}{\texttt{github.com/zih428/shbt-261-mini-project-2}}
+\end{center}
+
 \begin{abstract}
 This report studies semantic segmentation on Pascal VOC 2007 under a shared optimization and evaluation pipeline that compares a classical encoder-decoder baseline, a stronger CNN decoder, two pretrained transformer segmenters, and a lightweight SAM2-based semantic adapter. Because these systems start from different pretrained sources (ImageNet, ADE20K, and SAM2 pretraining), the study should be read as a pragmatic system-level benchmark rather than as a clean architecture-isolation experiment. The official validation split of \OfficialValCount{} images is treated as a locked test set, while the official training split is partitioned into \InternalTrainCount{} internal training images and \InternalDevCount{} internal development images for model selection. Across \HeadlineModelCount{} representative systems, \TopModelName{} achieves the best official-validation overlap metrics at \TopModelMiou{}\% mIoU, while \BestHdModelName{} attains the best HD95 at \BestHdValue{}. The ablations show that model capacity, augmentation strength, and adapter tuning strategy matter more than swapping among simple loss formulations, and that the old 60-epoch budget would have materially under-trained the strongest U-Net backbone. The resulting system goes beyond the assignment minimum by evaluating \CompletedTrainRunCount{} trained runs, reporting both per-class IoU and per-class accuracy, analyzing subset-specific and class-confusion failure modes, and adding both bootstrap and alternate-split robustness checks under a publication-style protocol.
 \end{abstract}
